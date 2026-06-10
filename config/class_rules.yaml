@@ -1,0 +1,87 @@
+# swissTLM3D attribute → mask mapping (adjust field names to your extract)
+priority:
+  - building_mask
+  - road_mask
+  - path_mask
+  - water_mask
+  - settlement_mask
+  - forest_mask
+  - rock_or_bare_ground_mask
+  - open_land_mask
+  - special_area_mask
+
+mask_values:
+  building_mask: 1
+  road_mask: 2
+  path_mask: 3
+  water_mask: 4
+  settlement_mask: 5
+  forest_mask: 6
+  rock_or_bare_ground_mask: 7
+  open_land_mask: 8
+  special_area_mask: 9
+
+layers:
+  buildings:
+  roads:
+    width_field: "width"
+    default_width_m: 6.0
+    category_field: "object_type"
+    categories:
+      highway: 8.0
+      main_road: 6.0
+      secondary: 5.0
+      local: 4.0
+  paths:
+    width_field: "width"
+    default_width_m: 2.0
+  water:
+  forest:
+    class_field: "objektart"
+    forest_values:
+      - "Wald"
+      - "Wald offen"
+  settlement:
+    class_field: "objektart"
+    settlement_values:
+      - "Abwasserreinigungsareal"
+      - "Baumschule"
+      - "Friedhof"
+      - "Kraftwerkareal"
+      - "Oeffentliches Parkareal"
+      - "Schul- und Hochschulareal"
+      - "Spitalareal"
+      - "Unterwerkareal"
+      - "Wald nicht bestockt"
+      - "Oeffentliches Parkplatzareal"
+      - "Privates Parkplatzareal"
+      - "Freizeitanlagenareal"
+      - "Golfplatzareal"
+      - "Schwimmbadareal"
+      - "Sportplatzareal"
+      - "Zooareal"
+  landcover:
+    class_field: "objektart"
+    rock_values:
+      - "Fels"
+      - "Fels locker"
+      - "Felsbloecke"
+      - "Felsbloecke locker"
+      - "Lockergestein"
+      - "Lockergestein locker"
+    open_land_values:
+      - "Gehoelzflaeche"
+      - "Gebueschwald"
+      - "Feuchtgebiet"
+      - "Gletscher"
+
+rock_heuristic:
+  slope_threshold_deg: 35.0
+  combine_with_tlm: true
+  exclude_forest: true
+
+protect_hard_masks:
+  - water_mask
+  - building_mask
+  - road_mask
+  - forest_mask
