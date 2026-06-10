@@ -14,6 +14,15 @@ DEFAULT_SNOW_SURFACE_CONFIG: dict[str, float] = {
     "base_snow_height_m": 2.0,
     "max_accumulation_slope_deg": 30.0,
     "smoothing_sigma_m": 20.0,
+    "micro_suppression": 0.0,
+    "depression_fill": 0.85,
+    "ridge_micro_retention": 0.25,
+    "peak_retention": 1.0,
+    "tpi_smoothing_sigma_m": 0.0,
+    "thickness_smoothing_sigma_m": 0.0,
+    "surface_post_smooth_sigma_m": 0.0,
+    "surface_macro_smooth_sigma_m": 0.0,
+    "accumulation_blend_sigma_m": 0.0,
     "valley_deposition_factor": 0.30,
     "ridge_scour_factor": 0.50,
     "windward_aspect_penalty": 0.15,
@@ -44,17 +53,17 @@ def compute_snow_surface_arrays(
     """Derive snow-covered surface and per-pixel thickness from terrain."""
     base_height = cfg["base_snow_height_m"]
     max_slope = cfg["max_accumulation_slope_deg"]
-    sigma_m = cfg["smoothing_sigma_m"]
 
     accumulation = slope < max_slope
+    blend_weight = _accumulation_blend_weight(accumulation, cfg, resolution_m)
+    leveled = _compute_leveled_surface(dem, accumulation, cfg, resolution_m)
 
-    sigma_px = max(1.0, sigma_m / resolution_m)
-    smoothed = ndimage.gaussian_filter(dem.astype(np.float64), sigma=sigma_px).astype(np.float32)
-
-    # Small depressions are filled up to the smoothed reference in accumulation zones.
-    leveled = np.where(accumulation, np.maximum(dem, smoothed), dem)
-
-    tpi_norm = _normalize_tpi(tpi)
+    tpi_work = tpi.astype(np.float64)
+    tpi_sigma_m = float(cfg.get("tpi_smoothing_sigma_m", 0.0))
+    if tpi_sigma_m > 0.0:
+        tpi_sigma_px = max(1.0, tpi_sigma_m / resolution_m)
+        tpi_work = ndimage.gaussian_filter(tpi_work, sigma=tpi_sigma_px)
+    tpi_norm = _normalize_tpi(tpi_work.astype(np.float32))
     thickness = np.full(dem.shape, base_height, dtype=np.float32)
 
     valley_factor = np.clip(-tpi_norm, 0.0, 1.0)
@@ -71,7 +80,17 @@ def compute_snow_surface_arrays(
     thickness *= 1.0 - steep_factor * (1.0 - steep_retention)
 
     thickness = np.maximum(thickness, 0.0).astype(np.float32)
+
+    thickness_sigma_m = float(cfg.get("thickness_smoothing_sigma_m", 0.0))
+    if thickness_sigma_m > 0.0:
+        thickness_sigma_px = max(1.0, thickness_sigma_m / resolution_m)
+        thickness = ndimage.gaussian_filter(
+            thickness.astype(np.float64),
+            sigma=thickness_sigma_px,
+        ).astype(np.float32)
+
     snow_surface = (leveled + thickness).astype(np.float32)
+    snow_surface = _apply_surface_smoothing(snow_surface, blend_weight, cfg, resolution_m)
     snow_thickness = (snow_surface - dem).astype(np.float32)
 
     return {
@@ -79,6 +98,84 @@ def compute_snow_surface_arrays(
         "snow_thickness_m": snow_thickness,
         "accumulation_mask": accumulation.astype(np.uint8),
     }
+
+
+def _compute_leveled_surface(
+    dem: np.ndarray,
+    accumulation: np.ndarray,
+    cfg: dict[str, float],
+    resolution_m: float,
+) -> np.ndarray:
+    sigma_m = cfg["smoothing_sigma_m"]
+    sigma_px = max(1.0, sigma_m / resolution_m)
+    macro = ndimage.gaussian_filter(dem.astype(np.float64), sigma=sigma_px).astype(np.float32)
+
+    micro_suppression = float(cfg.get("micro_suppression", 0.0))
+    if micro_suppression > 0.0:
+        micro = dem - macro
+        depression_fill = float(cfg.get("depression_fill", 0.85))
+        ridge_micro_retention = float(cfg.get("ridge_micro_retention", 0.25))
+        micro_target = np.where(
+            micro < 0.0,
+            micro * (1.0 - depression_fill),
+            micro * ridge_micro_retention,
+        )
+        micro_snow = micro + (micro_target - micro) * micro_suppression
+        snow_base = (macro + micro_snow).astype(np.float32)
+        return np.where(accumulation, snow_base, dem).astype(np.float32)
+
+    peak_retention = float(cfg.get("peak_retention", 1.0))
+    excess = np.maximum(dem - macro, 0.0)
+    leveled = macro + excess * peak_retention
+    return np.where(accumulation, leveled, dem).astype(np.float32)
+
+
+def _accumulation_blend_weight(
+    accumulation: np.ndarray,
+    cfg: dict[str, float],
+    resolution_m: float,
+) -> np.ndarray:
+    blend_weight = accumulation.astype(np.float32)
+    blend_sigma_m = float(cfg.get("accumulation_blend_sigma_m", 0.0))
+    if blend_sigma_m > 0.0:
+        blend_sigma_px = max(1.0, blend_sigma_m / resolution_m)
+        blend_weight = ndimage.gaussian_filter(
+            blend_weight.astype(np.float64),
+            sigma=blend_sigma_px,
+        ).astype(np.float32)
+        blend_weight = np.clip(blend_weight, 0.0, 1.0)
+    return blend_weight
+
+
+def _apply_surface_smoothing(
+    snow_surface: np.ndarray,
+    blend_weight: np.ndarray,
+    cfg: dict[str, float],
+    resolution_m: float,
+) -> np.ndarray:
+    post_sigma_m = float(cfg.get("surface_post_smooth_sigma_m", 0.0))
+    if post_sigma_m > 0.0:
+        post_sigma_px = max(1.0, post_sigma_m / resolution_m)
+        snow_smooth = ndimage.gaussian_filter(
+            snow_surface.astype(np.float64),
+            sigma=post_sigma_px,
+        ).astype(np.float32)
+        snow_surface = (
+            snow_surface * (1.0 - blend_weight) + snow_smooth * blend_weight
+        ).astype(np.float32)
+
+    macro_sigma_m = float(cfg.get("surface_macro_smooth_sigma_m", 0.0))
+    if macro_sigma_m > 0.0:
+        macro_sigma_px = max(1.0, macro_sigma_m / resolution_m)
+        snow_macro = ndimage.gaussian_filter(
+            snow_surface.astype(np.float64),
+            sigma=macro_sigma_px,
+        ).astype(np.float32)
+        snow_surface = (
+            snow_surface * (1.0 - blend_weight) + snow_macro * blend_weight
+        ).astype(np.float32)
+
+    return snow_surface.astype(np.float32)
 
 
 def compute_snow_surface(

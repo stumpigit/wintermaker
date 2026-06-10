@@ -3,8 +3,6 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { Line2 } from "three/addons/lines/Line2.js";
 import { LineGeometry } from "three/addons/lines/LineGeometry.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
-import { Sky } from "three/addons/objects/Sky.js";
-
 const canvas = document.getElementById("canvas");
 const statusEl = document.getElementById("status");
 const tileSelect = document.getElementById("tile-select");
@@ -16,7 +14,7 @@ const exaggerationValue = document.getElementById("exaggeration-value");
 
 // Wintermittag ~11 Uhr, typisch für die Schweiz (tief stehende Sonne im Süden)
 const WINTER_SUN_AZIMUTH_DEG = 172;
-const WINTER_SUN_ALTITUDE_DEG = 24;
+const WINTER_SUN_ALTITUDE_DEG = 28;
 
 const renderer = new THREE.WebGLRenderer({
   canvas,
@@ -54,23 +52,63 @@ let trackLines = [];
 let trackSources = [];
 const textureCache = new Map();
 
-const sky = new Sky();
-sky.scale.setScalar(450000);
+function createWinterSky() {
+  const sky = new THREE.Mesh(
+    new THREE.SphereGeometry(1, 32, 16),
+    new THREE.ShaderMaterial({
+      uniforms: {
+        topColor: { value: new THREE.Color(0x1e7fd4) },
+        midColor: { value: new THREE.Color(0x4aa8e8) },
+        horizonColor: { value: new THREE.Color(0xb8d9f2) },
+        sunDirection: { value: new THREE.Vector3() },
+      },
+      vertexShader: `
+        varying vec3 vWorldPosition;
+        void main() {
+          vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+          vWorldPosition = worldPosition.xyz;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          gl_Position.z = gl_Position.w;
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 topColor;
+        uniform vec3 midColor;
+        uniform vec3 horizonColor;
+        uniform vec3 sunDirection;
+        varying vec3 vWorldPosition;
+        void main() {
+          vec3 direction = normalize(vWorldPosition - cameraPosition);
+          float elevation = clamp(direction.y, 0.0, 1.0);
+          vec3 skyColor = elevation > 0.55
+            ? mix(midColor, topColor, (elevation - 0.55) / 0.45)
+            : mix(horizonColor, midColor, elevation / 0.55);
+          float sunGlow = pow(max(dot(direction, normalize(sunDirection)), 0.0), 256.0);
+          skyColor += vec3(1.0, 0.95, 0.82) * sunGlow * 0.85;
+          gl_FragColor = vec4(skyColor, 1.0);
+        }
+      `,
+      side: THREE.BackSide,
+      depthWrite: false,
+      toneMapped: false,
+    }),
+  );
+  sky.scale.setScalar(450000);
+  sky.frustumCulled = false;
+  return sky;
+}
+
+const sky = createWinterSky();
 scene.add(sky);
-
 const skyUniforms = sky.material.uniforms;
-skyUniforms.turbidity.value = 2;
-skyUniforms.rayleigh.value = 1.5;
-skyUniforms.mieCoefficient.value = 0.004;
-skyUniforms.mieDirectionalG.value = 0.82;
 
-const hemisphereLight = new THREE.HemisphereLight(0xb8d9f8, 0xe8eef5, 0.42);
+const hemisphereLight = new THREE.HemisphereLight(0x4aa3e8, 0xd8e8f5, 0.62);
 scene.add(hemisphereLight);
 
-const ambientLight = new THREE.AmbientLight(0xdce8f5, 0.16);
+const ambientLight = new THREE.AmbientLight(0xc8ddf5, 0.12);
 scene.add(ambientLight);
 
-const sunLight = new THREE.DirectionalLight(0xfff4e8, 1.4);
+const sunLight = new THREE.DirectionalLight(0xfff6e8, 2.6);
 sunLight.target.position.set(0, 0, 0);
 scene.add(sunLight);
 scene.add(sunLight.target);
@@ -82,7 +120,7 @@ function updateWinterSun(target = new THREE.Vector3(0, 0, 0)) {
   const phi = THREE.MathUtils.degToRad(90 - WINTER_SUN_ALTITUDE_DEG);
   const theta = THREE.MathUtils.degToRad(WINTER_SUN_AZIMUTH_DEG);
   sunDirection.setFromSphericalCoords(1, phi, theta);
-  skyUniforms.sunPosition.value.copy(sunDirection);
+  skyUniforms.sunDirection.value.copy(sunDirection);
   sunLight.position.copy(sunDirection).multiplyScalar(8000).add(target);
   sunLight.target.position.copy(target);
 }

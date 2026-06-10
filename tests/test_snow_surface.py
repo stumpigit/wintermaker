@@ -88,6 +88,77 @@ def test_steep_slope_skips_accumulation_smoothing() -> None:
     assert result["snow_thickness_m"][15, 15] < result["snow_thickness_m"][5, 5]
 
 
+def test_multiscale_preserves_ridges_better_than_flat_blanket() -> None:
+    width, height = 128, 128
+    dem = np.linspace(2000, 2020, width, dtype=np.float32)[None, :] + np.linspace(
+        0, 8, height, dtype=np.float32
+    )[:, None]
+    ridge = np.sin(np.linspace(0, 6 * np.pi, width, dtype=np.float32))[None, :] * 3.0
+    dem = dem + ridge
+    dem += np.random.default_rng(0).normal(0, 0.4, dem.shape).astype(np.float32)
+    slope = np.zeros((height, width), dtype=np.float32)
+    tpi = np.zeros((height, width), dtype=np.float32)
+    aspect = np.zeros((height, width), dtype=np.float32)
+
+    blanket = resolve_snow_surface_config(
+        {
+            "snow_surface": {
+                "smoothing_sigma_m": 150,
+                "peak_retention": 0.0,
+                "surface_macro_smooth_sigma_m": 100,
+                "valley_deposition_factor": 0.0,
+                "ridge_scour_factor": 0.0,
+            }
+        }
+    )
+    multiscale = resolve_snow_surface_config(
+        {
+            "snow_surface": {
+                "smoothing_sigma_m": 55,
+                "micro_suppression": 0.82,
+                "depression_fill": 0.92,
+                "ridge_micro_retention": 0.40,
+                "valley_deposition_factor": 0.0,
+                "ridge_scour_factor": 0.0,
+            }
+        }
+    )
+    blanket_surface = compute_snow_surface_arrays(
+        dem, slope, tpi, aspect, blanket, resolution_m=1.0
+    )["snow_surface_dem"]
+    multiscale_surface = compute_snow_surface_arrays(
+        dem, slope, tpi, aspect, multiscale, resolution_m=1.0
+    )["snow_surface_dem"]
+
+    assert multiscale_surface.std() > blanket_surface.std()
+    assert np.corrcoef(dem.ravel(), multiscale_surface.ravel())[0, 1] > np.corrcoef(
+        dem.ravel(), blanket_surface.ravel()
+    )[0, 1]
+
+
+def test_peak_retention_zero_produces_smoother_surface_than_legacy() -> None:
+    dem, slope, tpi, aspect = _flat_terrain(width=128, height=128)
+    legacy = resolve_snow_surface_config({"snow_surface": {"peak_retention": 1.0}})
+    smooth = resolve_snow_surface_config(
+        {
+            "snow_surface": {
+                "peak_retention": 0.0,
+                "surface_post_smooth_sigma_m": 10.0,
+                "thickness_smoothing_sigma_m": 10.0,
+            }
+        }
+    )
+    legacy_result = compute_snow_surface_arrays(
+        dem, slope, tpi, aspect, legacy, resolution_m=1.0
+    )
+    smooth_result = compute_snow_surface_arrays(
+        dem, slope, tpi, aspect, smooth, resolution_m=1.0
+    )
+    legacy_std = float(legacy_result["snow_surface_dem"].std())
+    smooth_std = float(smooth_result["snow_surface_dem"].std())
+    assert smooth_std < legacy_std
+
+
 def test_blend_hillshade_prefers_snow_surface_on_flat_snowy_pixels() -> None:
     base = np.full((8, 8), 0.2, dtype=np.float32)
     snow = np.full((8, 8), 0.8, dtype=np.float32)

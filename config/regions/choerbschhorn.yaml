@@ -1,28 +1,28 @@
 crs: EPSG:2056
 tile_size_m: 512
-resolution_m: 2
+resolution_m: 1
 paths:
   raw_root: data/raw
   intermediate_root: data/intermediate/tiles
   output_root: data/output/tiles
-  orthophoto: data/raw/regions/demo_test/orthophoto/summer_rgb.tif
-  dem: data/raw/regions/demo_test/dem/dem.tif
+  orthophoto: data/raw/regions/choerbschhorn/orthophoto/summer_rgb.tif
+  dem: data/raw/regions/choerbschhorn/dem/dem.tif
   tlm3d:
-    buildings: data/raw/regions/demo_test/tlm3d/buildings.gpkg
-    roads: data/raw/regions/demo_test/tlm3d/roads.gpkg
-    paths: data/raw/regions/demo_test/tlm3d/paths.gpkg
-    water: data/raw/regions/demo_test/tlm3d/water.gpkg
-    forest: data/raw/regions/demo_test/tlm3d/forest.gpkg
-    settlement: data/raw/regions/demo_test/tlm3d/settlement.gpkg
-    landcover: data/raw/regions/demo_test/tlm3d/landcover.gpkg
+    buildings: data/raw/regions/choerbschhorn/tlm3d/buildings.gpkg
+    roads: data/raw/regions/choerbschhorn/tlm3d/roads.gpkg
+    paths: data/raw/regions/choerbschhorn/tlm3d/paths.gpkg
+    water: data/raw/regions/choerbschhorn/tlm3d/water.gpkg
+    forest: data/raw/regions/choerbschhorn/tlm3d/forest.gpkg
+    settlement: data/raw/regions/choerbschhorn/tlm3d/settlement.gpkg
+    landcover: data/raw/regions/choerbschhorn/tlm3d/landcover.gpkg
   winter_reference: data/raw/reference/winter_rgb.tif
 tiles:
-  demo_test_001:
+  choerbschhorn_001:
     bbox:
-    - 2788000.0
+    - 2777000.0
     - 1181000.0
-    - 2792000.0
-    - 1185000.0
+    - 2781000.0
+    - 1186000.0
 harmonize:
   orthophoto_resampling: bilinear
   dem_resampling: bilinear

@@ -1,5 +1,5 @@
-profile: demo_test
-snow_surface:  
+profile: choerbschhorn
+snow_surface:
   base_snow_height_m: 4.0
   max_accumulation_slope_deg: 35
   # Macro/micro split: ridges & valleys follow macro terrain; metre-scale noise is flattened.
