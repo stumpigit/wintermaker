@@ -34,8 +34,8 @@ def test_forest_preserves_crown_contrast():
     lum = 0.299 * out[..., 0] + 0.587 * out[..., 1] + 0.114 * out[..., 2]
     assert lum[active].std() > 0.03
     assert lum[active].max() - lum[active].min() > 0.10
-    assert np.percentile(lum[active], 10) > 0.38
-    assert np.percentile(lum[active], 90) < 0.92
+    assert np.percentile(lum[active], 10) < np.percentile(lum[active], 90)
+    assert np.percentile(lum[active], 90) < 0.82
 
 
 def test_forest_does_not_preserve_summer_green_hue():

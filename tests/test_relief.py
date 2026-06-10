@@ -19,15 +19,18 @@ def test_winter_relief_darkens_shade_and_brightens_sun():
     aspect = np.full((8, 8), 0.0, dtype=np.float32)
     snow_fraction = np.full((8, 8), 0.9, dtype=np.float32)
     snow_color = np.array([0.95, 0.97, 0.99], dtype=np.float32)
+    summer = np.full((8, 8, 3), 0.6, dtype=np.float32)
     out = apply_winter_relief(
         rgb,
         hillshade=hillshade,
         aspect=aspect,
         snow_fraction=snow_fraction,
         snow_color=snow_color,
+        summer_rgb=summer,
         hillshade_strength=0.3,
         aspect_strength=0.0,
         compression=0.5,
+        summer_relief_weight=0.4,
     )
     shade_lum = luminance(out)[0, 0]
     sun_lum = luminance(out)[-1, -1]

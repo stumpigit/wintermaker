@@ -5,6 +5,7 @@ import numpy as np
 from winter_ortho.features.texture import band_limited_noise
 from winter_ortho.rendering.base import blend, modulate_snow_layer_brightness, snow_cover_alpha
 from winter_ortho.rendering.relief import shade_snow_layer
+from winter_ortho.rendering.summer_structure import combined_shade_field
 
 
 def render_paths(
@@ -29,6 +30,15 @@ def render_paths(
     if not active.any():
         return out
 
+    summer = out.copy()
+    shade_field = combined_shade_field(
+        hillshade,
+        summer,
+        active,
+        hillshade_weight=0.40,
+        summer_weight=0.60,
+        compression=hillshade_compression,
+    )
     noise = band_limited_noise(rgb.shape[:2], scale_px=noise_scale_px, seed=31)
     snow_layer = shade_snow_layer(
         snow_color,
@@ -37,6 +47,9 @@ def render_paths(
         compression=hillshade_compression,
         snow_fraction=snow_fraction,
         snow_flattening=snow_flattening,
+        shade_field=shade_field,
+        shadow_boost=1.2,
+        highlight_cap=0.48,
     )
     texture = noise[..., np.newaxis] * snow_texture_strength[..., np.newaxis] * 0.1
     snow_layer = np.clip(snow_layer + texture, 0, 1)

@@ -4,16 +4,20 @@ import numpy as np
 from scipy import ndimage
 
 from winter_ortho.rendering.base import blend
+from winter_ortho.rendering.relief import desaturate, luminance
+from winter_ortho.rendering.summer_structure import summer_luminance_map
 
 
 def render_buildings(
     rgb: np.ndarray,
     mask: np.ndarray,
+    summer_rgb: np.ndarray,
     *,
     roof_snow_intensity: np.ndarray,
     snow_color: np.ndarray,
     brighten_factor: float,
     edge_preservation: float,
+    wall_preservation: float = 0.62,
 ) -> np.ndarray:
     out = rgb.copy()
     active = mask > 0
@@ -24,9 +28,16 @@ def render_buildings(
     edges += ndimage.sobel(mask.astype(np.float32), axis=1) ** 2
     edges = edges > 0
 
-    alpha = roof_snow_intensity * brighten_factor
-    blended = blend(out, snow_color, alpha)
-    out[active] = blended[active]
+    summer_building = desaturate(summer_rgb, 0.55)
+    roof_signal = summer_luminance_map(summer_rgb, active)
+    alpha = np.clip(roof_snow_intensity * brighten_factor * (0.25 + 0.75 * roof_signal), 0.0, 0.75)
+
+    wall_alpha = np.clip(wall_preservation * (1.0 - alpha * 0.6), 0.0, 0.85)
+    winter = blend(out, summer_building, wall_alpha[..., np.newaxis])
+    winter = blend(winter, snow_color, alpha[..., np.newaxis])
+
+    out[active] = winter[active]
     if edge_preservation > 0:
-        out[edges] = rgb[edges] * edge_preservation + out[edges] * (1 - edge_preservation)
+        edge_blend = summer_rgb * edge_preservation + out * (1.0 - edge_preservation)
+        out[edges] = edge_blend[edges]
     return out

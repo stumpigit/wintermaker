@@ -33,18 +33,26 @@ def shade_snow_layer(
     compression: float = 1.0,
     snow_fraction: np.ndarray | None = None,
     snow_flattening: float = 0.0,
+    shade_field: np.ndarray | None = None,
+    shadow_boost: float = 1.0,
+    highlight_cap: float = 1.0,
 ) -> np.ndarray:
-    hill = compress_hillshade(hillshade, compression)
+    field = shade_field if shade_field is not None else compress_hillshade(hillshade, compression)
     effective = float(strength)
     if snow_fraction is not None and snow_flattening > 0.0:
         effective = effective * (1.0 - np.clip(snow_fraction, 0.0, 1.0) * snow_flattening)
 
-    layer = np.empty((*hill.shape, 3), dtype=np.float32)
+    delta = field - 0.5
+    neg = np.minimum(delta, 0.0) * float(shadow_boost)
+    pos = np.maximum(delta, 0.0) * float(highlight_cap)
+    relief = neg + pos
+
+    layer = np.empty((*field.shape, 3), dtype=np.float32)
     layer[:] = snow_color
     if np.ndim(effective) == 0:
-        shade = (hill[..., np.newaxis] - 0.5) * effective
+        shade = relief[..., np.newaxis] * effective
     else:
-        shade = (hill[..., np.newaxis] - 0.5) * effective[..., np.newaxis]
+        shade = relief[..., np.newaxis] * effective[..., np.newaxis]
     return np.clip(layer + shade, 0.0, 1.0)
 
 
@@ -55,16 +63,24 @@ def apply_winter_relief(
     aspect: np.ndarray,
     snow_fraction: np.ndarray,
     snow_color: np.ndarray,
+    summer_rgb: np.ndarray | None = None,
+    hillshade_generalized: np.ndarray | None = None,
+    cast_shadow: np.ndarray | None = None,
     relief_weight: np.ndarray | None = None,
     hillshade_strength: float = 0.12,
     aspect_strength: float = 0.06,
     compression: float = 0.35,
+    macro_hillshade_weight: float = 0.82,
     min_snow: float = 0.30,
     shade_min: float = 0.82,
     sun_max: float = 1.18,
     snow_tint_strength: float = 0.50,
+    summer_relief_weight: float = 0.0,
+    cast_shadow_relief_weight: float = 0.0,
 ) -> np.ndarray:
-    """Subtle hillshade relief on snow; snowy pixels keep blue-white chroma, not neutral gray."""
+    """Subtle hillshade relief on snow; snowy pixels keep snow chroma, not neutral gray."""
+    from winter_ortho.rendering.summer_structure import blend_macro_hillshade, summer_luminance_map
+
     snow_weight = np.clip(
         (snow_fraction - min_snow) / max(1.0 - min_snow, 1e-3),
         0.0,
@@ -73,10 +89,21 @@ def apply_winter_relief(
     weight = np.ones_like(snow_fraction, dtype=np.float32) if relief_weight is None else relief_weight
     weight = weight * snow_weight
 
-    hill = compress_hillshade(hillshade, compression)
+    hill = blend_macro_hillshade(
+        hillshade,
+        hillshade_generalized,
+        macro_weight=macro_hillshade_weight,
+        compression=compression,
+    )
     hill_relief = (hill - 0.5) * 2.0 * hillshade_strength
     aspect_relief = np.cos(np.radians(aspect - 180.0)) * aspect_strength
-    relief = (hill_relief + aspect_relief) * weight
+    relief = hill_relief + aspect_relief
+    if summer_rgb is not None and summer_relief_weight > 0:
+        summer_field = summer_luminance_map(summer_rgb) - 0.5
+        relief = relief * (1.0 - summer_relief_weight) + summer_field * 2.0 * hillshade_strength * summer_relief_weight
+    if cast_shadow is not None and cast_shadow_relief_weight > 0:
+        relief = relief - cast_shadow * cast_shadow_relief_weight * hillshade_strength * 2.2
+    relief = relief * weight
     scale = np.clip(1.0 + relief, shade_min, sun_max)
 
     lum = luminance(rgb)

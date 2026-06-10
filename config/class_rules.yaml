@@ -80,6 +80,27 @@ rock_heuristic:
   combine_with_tlm: true
   exclude_forest: true
 
+# Summer orthophoto overrides TLM where appearance disagrees (orthophoto = ground truth).
+summer_reconcile:
+  enabled: true
+  protect_masks:
+    - water_mask
+    - building_mask
+    - road_mask
+    - path_mask
+  rock:
+    min_rock_score: 0.32
+    max_green_excess: 0.055
+    min_meadow_score: 0.40
+    min_forest_score: 0.30
+    reassign_forest_px: 5
+  forest:
+    fill_holes: true
+    hole_close_radius_px: 6
+    hole_min_forest_score: 0.20
+    min_forest_score: 0.34
+    interior_expand_px: 2
+
 protect_hard_masks:
   - water_mask
   - building_mask

@@ -7,6 +7,7 @@ from skimage.morphology import disk, white_tophat
 from winter_ortho.features.texture import band_limited_noise
 from winter_ortho.rendering.base import blend
 from winter_ortho.rendering.relief import desaturate, luminance, shade_snow_layer
+from winter_ortho.rendering.summer_structure import remap_luminance_structure, summer_luminance_map
 
 
 def _normalize_percentile(
@@ -41,55 +42,81 @@ def render_forest(
     crown_highlight_strength: float = 0.42,
     crown_noise_strength: float = 0.04,
     noise_scale_px: int = 8,
+    winter_luminance_lo: float = 0.08,
+    winter_luminance_hi: float = 0.34,
+    summer_structure_strength: float = 0.82,
+    green_suppression: float = 0.78,
+    max_crown_snow_alpha: float = 0.48,
+    canopy_blanket: float = 0.50,
     **_: object,
 ) -> np.ndarray:
-    """Blend snow color onto canopy; crown peaks receive more snow, gaps stay dark."""
+    """Winter forest: summer shadows plus canopy blanket and crown snow."""
     out = rgb.copy()
     active = mask > 0
     if not active.any():
         return out
 
-    src = out.copy()
-    mean = src[active].mean(axis=0, keepdims=True)
-    src[active] = src[active] * (1.0 - contrast_reduction) + mean * contrast_reduction
-    src = desaturate(src, np.where(active, 0.55, 0.0))
+    summer = out.copy()
+    src = desaturate(summer, np.where(active, green_suppression, 0.0))
+    src = remap_luminance_structure(
+        src,
+        summer,
+        summer_structure_strength,
+        target_lo=winter_luminance_lo,
+        target_hi=winter_luminance_hi,
+        mask=active,
+        summer_mask=active,
+    )
 
     forest_lum = luminance(src)
     radius = max(2, crown_tophat_radius_px)
     crown_signal = _normalize_percentile(
         white_tophat(forest_lum.astype(np.float64), disk(radius)).astype(np.float32),
         active,
-        40.0,
-        88.0,
+        45.0,
+        90.0,
     )
     sigma = max(1.0, radius * 0.35)
     highpass = forest_lum - ndimage.gaussian_filter(forest_lum, sigma=sigma)
+    s_map = summer_luminance_map(summer, active)
     structure = np.clip(
-        crown_signal * 0.65 + np.clip(highpass / 0.08, 0.0, 1.0) * 0.35,
+        crown_signal * 0.70
+        + np.clip(highpass / 0.10, 0.0, 1.0) * 0.20
+        + s_map * 0.10,
         0.0,
         1.0,
     )
 
     snow_cover = np.clip(snow_fraction * forest_snow_intensity, 0.0, 1.0)
-    snow_layer = shade_snow_layer(snow_color, hillshade, hillshade_strength)
+    snow_layer = shade_snow_layer(
+        snow_color,
+        hillshade,
+        hillshade_strength * 0.72,
+        shadow_boost=1.05,
+        highlight_cap=0.52,
+    )
     noise = band_limited_noise(rgb.shape[:2], scale_px=noise_scale_px, seed=17)
     snow_layer = np.clip(
-        snow_layer + noise[..., np.newaxis] * crown_noise_strength * (0.3 + 0.7 * structure)[..., np.newaxis],
+        snow_layer
+        + noise[..., np.newaxis]
+        * crown_noise_strength
+        * crown_highlight_strength
+        * structure[..., np.newaxis],
         0.0,
         1.0,
     )
 
-    # Snow on crowns and moderate blanket on canopy — not hue-preserving summer brighten.
-    alpha = np.clip(
-        snow_cover * (0.62 + 0.38 * structure),
+    canopy_mix = np.clip(
+        canopy_blanket + (1.0 - canopy_blanket) * np.clip(structure * 0.75 + crown_signal * 0.25, 0.0, 1.0),
         0.0,
-        0.94,
+        1.0,
     )
+    alpha = np.clip(snow_cover * canopy_mix, 0.0, max_crown_snow_alpha)
     winter = blend(src, snow_layer, alpha[..., np.newaxis])
 
-    gap = np.clip((1.0 - structure) * (1.0 - snow_cover * 0.7), 0.0, 1.0)
-    preserve = np.clip(original_texture_visibility * gap, 0.0, 0.12)
-    final = blend(winter, desaturate(src, 0.85), preserve[..., np.newaxis])
+    gap = np.clip((1.0 - structure) * (1.0 - snow_cover * 0.55), 0.0, 1.0)
+    preserve = np.clip(original_texture_visibility * gap, 0.0, 0.14)
+    final = blend(winter, src, preserve[..., np.newaxis])
 
     out[active] = final[active]
     return out

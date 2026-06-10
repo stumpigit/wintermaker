@@ -161,6 +161,19 @@ def load_terrain_bands(
     return result
 
 
+def compute_generalized_hillshade(
+    elevation: np.ndarray,
+    resolution_m: float,
+    terrain_cfg: dict[str, Any],
+) -> np.ndarray:
+    """Hillshade from Gaussian-smoothed DEM — mountains/slopes, not metre-scale noise."""
+    sigma_m = float(terrain_cfg.get("generalized_hillshade_sigma_m", 55.0))
+    sigma_px = max(1.0, sigma_m / resolution_m)
+    smooth = ndimage.gaussian_filter(elevation.astype(np.float64), sigma=sigma_px).astype(np.float32)
+    dz_dy, dz_dx = np.gradient(smooth, resolution_m, resolution_m)
+    return _hillshade_from_gradients(dz_dx, dz_dy, terrain_cfg)
+
+
 def _hillshade_from_gradients(
     dz_dx: np.ndarray,
     dz_dy: np.ndarray,

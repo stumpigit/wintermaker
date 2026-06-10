@@ -28,6 +28,7 @@ harmonize:
   mask_resampling: "nearest"
 
 terrain:
+  generalized_hillshade_sigma_m: 55
   hillshade:
     azimuth: 150
     altitude: 25

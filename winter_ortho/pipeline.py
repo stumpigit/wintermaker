@@ -5,6 +5,8 @@ from typing import Any
 from winter_ortho.features.terrain import SNOW_TERRAIN_BANDS, compute_terrain_features, load_terrain_bands
 from winter_ortho.masks.build_masks import build_tile_masks
 from winter_ortho.masks.protect_masks import build_protect_mask
+from winter_ortho.masks.summer_reconcile import reconcile_masks_with_summer, write_reconciled_masks
+from winter_ortho.rendering.base import to_float_rgb
 from winter_ortho.preprocessing.align import harmonize_tile
 from winter_ortho.preprocessing.tiling import get_tile_grid
 from winter_ortho.qa.geometry_checks import run_qa
@@ -89,6 +91,22 @@ def run_masks(
     paths = tile_paths(config, tile_id)
     grid = get_tile_grid(config, tile_id)
     class_masks = build_tile_masks(config, class_rules, paths, progress=progress)
+    if paths.rgb_summer.exists():
+        if progress:
+            progress.substep("Reconciling TLM masks with summer orthophoto")
+        summer_raw, _ = read_raster(str(paths.rgb_summer))
+        summer_rgb = to_float_rgb(summer_raw)
+        class_masks = reconcile_masks_with_summer(
+            summer_rgb, class_masks, class_rules, progress=progress
+        )
+        write_reconciled_masks(
+            class_masks,
+            class_rules,
+            tlm_masks_path=paths.tlm_masks,
+            intermediate_dir=paths.intermediate_dir,
+            transform=grid.transform,
+            crs=grid.crs,
+        )
     if progress:
         progress.substep("Building geometry protection mask")
     build_protect_mask(
