@@ -15,6 +15,7 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 data/
+viewer/data/
 *.tif
 *.tiff
 *.gpkg

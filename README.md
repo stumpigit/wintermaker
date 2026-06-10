@@ -61,6 +61,35 @@ winter-ortho render --tile-id davos_001 --profile davos
 winter-ortho qa --tile-id davos_001
 ```
 
+## 3D viewer
+
+Inspect the winter orthophoto draped on the aligned DEM in a local web viewer (Three.js).
+
+Exported assets are written to `viewer/data/{tile_id}/` (gitignored). The mesh is decimated for browser memory; the orthophoto texture is exported separately at higher resolution.
+
+```bash
+# Export mesh + textures only
+winter-ortho viewer-export --tile-id demo_test_001 --config config/regions/demo_test.yaml
+
+# Export and start the viewer (opens http://127.0.0.1:8765)
+winter-ortho viewer --tile-id demo_test_001 --config config/regions/demo_test.yaml
+```
+
+For a denser mesh (more detail, more memory):
+
+```bash
+winter-ortho viewer-export --tile-id demo_test_001 --stride 8
+```
+
+**Controls**
+
+- Left mouse button: rotate
+- Right mouse button: pan
+- Mouse wheel: zoom
+- UI: switch winter/summer texture, adjust vertical exaggeration
+
+After re-exporting, hard-refresh the browser (`Ctrl+Shift+R`) if the viewer was already open.
+
 ## Design
 
 - Deterministic, geometry-preserving rule-based renderer (stage 1)

@@ -9,6 +9,16 @@ def get_project_root(anchor: Path | None = None) -> Path:
         anchor = anchor.resolve()
         if anchor.is_file():
             anchor = anchor.parent
+        current = anchor
+        for _ in range(12):
+            if (current / "pyproject.toml").exists() or (
+                current / "config" / "default.yaml"
+            ).exists():
+                return current
+            parent = current.parent
+            if parent == current:
+                break
+            current = parent
         if anchor.name == "config":
             return anchor.parent
         return anchor

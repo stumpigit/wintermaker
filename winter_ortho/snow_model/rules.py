@@ -261,20 +261,20 @@ def _apply_rock(
         0,
         1,
     )
-    min_vis = rock_cfg["min_rock_visibility"] * slope_t + 0.12 * gentle_factor
+    min_vis = rock_cfg["min_rock_visibility"] * slope_t + 0.05 * gentle_factor
     rock_vis = np.maximum(rock_vis, min_vis)
-    rock_vis = rock_vis * (0.2 + 0.8 * slope_t)
+    rock_vis = rock_vis * (0.12 + 0.88 * slope_t)
     rock_visibility[mask] = rock_vis[mask]
 
     gentle_boost = float(rock_cfg.get("gentle_snow_boost", 0.22))
     rock_snow = np.clip(
         rock_cfg["max_snow_fraction"]
-        - rock_vis * 0.32
+        - rock_vis * 0.20
         + np.clip(tpi_mod, 0, 1) * 0.18
         - aspect_mod * rock_cfg.get("aspect_south_penalty", 0.12)
         + gentle_factor * gentle_boost,
-        0.12,
-        0.92,
+        0.20,
+        0.97,
     )
     snow_fraction[mask] = rock_snow[mask]
 
@@ -289,7 +289,7 @@ def _apply_open_land(
 ) -> None:
     open_cfg = profile["open_land"]
     lo, hi = open_cfg["snow_fraction"]
-    snow_fraction[mask] = np.clip(lo + (hi - lo) * 0.5 + elev_mod[mask] * 0.5, lo, hi)
+    snow_fraction[mask] = np.clip(lo + (hi - lo) * 0.68 + elev_mod[mask] * 0.5, lo, hi)
     snow_brightness[mask] = open_cfg["snow_brightness"]
     snow_texture_strength[mask] = open_cfg["snow_texture_strength"]
 

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Winter Ortho 3D Viewer</title>
+    <link rel="stylesheet" href="style.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.162.0/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="overlay">
+      <h1>Winter Ortho 3D</h1>
+      <p id="status">Lade Gelände …</p>
+      <div class="controls">
+        <label>
+          Kachel
+          <select id="tile-select"></select>
+        </label>
+        <label>
+          Textur
+          <select id="texture-select">
+            <option value="winter">Winter</option>
+            <option value="summer">Sommer</option>
+          </select>
+        </label>
+        <label>
+          Höhenüberhöhung
+          <input id="exaggeration" type="range" min="0.5" max="5" step="0.1" value="1.0" />
+          <span id="exaggeration-value">1.0×</span>
+        </label>
+      </div>
+      <p class="hint">
+        Linke Maustaste: drehen · Rechte Maustaste: verschieben · Mausrad: zoomen
+      </p>
+    </div>
+    <canvas id="canvas"></canvas>
+    <script type="module" src="main.js?v=5"></script>
+  </body>
+</html>

@@ -63,10 +63,14 @@ def render_rock(
     )
     gentle_factor = 1.0 - slope_t
     alpha = snow_fraction * (1.0 - rock_visibility) + gentle_factor * gentle_snow_boost
-    alpha = np.clip(alpha, 0.0, 0.88)
+    alpha = np.clip(alpha, 0.0, 0.96)
 
     snowy = blend(summer_rock, snow_layer, alpha[..., np.newaxis])
-    preserve = np.clip(summer_preservation * (rock_visibility + 0.15), 0.0, 0.65)
+    preserve = np.clip(
+        summer_preservation * (rock_visibility + 0.15) * (0.20 + 0.80 * slope_t),
+        0.0,
+        0.55,
+    )
     blended = blend(snowy, summer_rock, preserve[..., np.newaxis])
     out[active] = blended[active]
     return out

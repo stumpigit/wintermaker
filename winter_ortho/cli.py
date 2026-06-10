@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import http.server
 import json
 import subprocess
 import sys
+import webbrowser
+from functools import partial
 from pathlib import Path
 from typing import Optional
 
@@ -11,8 +14,11 @@ from rich.console import Console
 from rich.rule import Rule
 
 from winter_ortho import pipeline
+from winter_ortho.data_prep.region import prepare_region
 from winter_ortho.pipeline import PIPELINE_STEPS
+from winter_ortho.utils.paths import get_project_root
 from winter_ortho.utils.progress import PipelineProgress
+from winter_ortho.viewer.export import export_tile_viewer_data
 
 app = typer.Typer(help="Winter orthophoto generation pipeline")
 console = Console()
@@ -161,6 +167,91 @@ def qa(
         console.print(f"qa {status}")
 
 
+@app.command("prepare-region")
+def prepare_region_cmd(
+    name: str = typer.Option(..., "--name", "-n", help="Region/profile name"),
+    extent: str = typer.Option(
+        ...,
+        "--extent",
+        "-e",
+        help="Bounding box minx,miny,maxx,maxy in EPSG:2056",
+    ),
+    config: Optional[Path] = typer.Option(
+        None,
+        help="Base config to copy (default: config/default.yaml)",
+    ),
+    tlm_source: Optional[Path] = typer.Option(
+        None,
+        help="Master swissTLM3D GeoPackage",
+    ),
+    dem_year: int = typer.Option(
+        2023,
+        help="Preferred swissALTI3D vintage (falls back per tile via STAC)",
+    ),
+    wmts_zoom: Optional[int] = typer.Option(
+        None,
+        help="Override WMTS zoom (default: derived from resolution_m in config)",
+    ),
+    skip_ortho: bool = typer.Option(False, help="Skip orthophoto download"),
+    skip_dem: bool = typer.Option(False, help="Skip DEM download"),
+    skip_tlm: bool = typer.Option(False, help="Skip TLM3D extraction"),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Minimal output"),
+) -> None:
+    """Download orthophoto/DEM and extract vectors for a region extent."""
+    progress = _progress(quiet)
+
+    def report(message: str) -> None:
+        if not quiet:
+            progress.info(message)
+
+    progress.header("Regionsdaten vorbereiten", tile_id=f"{name}_001", profile=name)
+    progress.step_begin(1, 1, "Orthofoto, DEM und Vektoren laden")
+
+    result = prepare_region(
+        name=name,
+        extent=extent,
+        base_config=str(config) if config else None,
+        tlm_source=str(tlm_source) if tlm_source else None,
+        dem_year=dem_year,
+        wmts_zoom=wmts_zoom,
+        skip_ortho=skip_ortho,
+        skip_dem=skip_dem,
+        skip_tlm=skip_tlm,
+        progress=report,
+    )
+
+    progress.step_end(
+        "Regionsdaten vorbereiten",
+        f"Config → {result['config']}",
+    )
+    summary_rows = [
+        ("Name", name),
+        ("Tile", str(result["tile_id"])),
+        ("Profil", name),
+        ("Config", str(result["config"])),
+        ("Daten", str(result["region_dir"])),
+    ]
+    ortho = result.get("orthophoto")
+    if isinstance(ortho, dict):
+        summary_rows.extend(
+            [
+                (
+                    "WMTS Zoom",
+                    f"{ortho['zoom']} ({ortho['native_resolution_m']:.2f} m nativ → "
+                    f"{ortho['target_resolution_m']:.2f} m)",
+                ),
+                ("WMTS Kacheln", str(ortho["tile_count"])),
+                (
+                    "WMTS col/row",
+                    f"{ortho['col_range'][0]}–{ortho['col_range'][1]} / "
+                    f"{ortho['row_range'][0]}–{ortho['row_range'][1]}",
+                ),
+            ]
+        )
+    progress.summary_table(summary_rows)
+    console.print(f"\n[bold green]Bereit:[/bold green] {result['run_command']}")
+
+
 @app.command("extract-tlm3d")
 def extract_tlm3d_cmd(
     tile_id: str = typer.Option("davos_001", help="Tile id with bbox in config"),
@@ -234,6 +325,79 @@ def run_all_cmd(
 
     if json_output:
         console.print_json(json.dumps(result, default=str))
+
+
+@app.command("viewer-export")
+def viewer_export_cmd(
+    tile_id: str = typer.Option(..., help="Tile identifier"),
+    config: Optional[Path] = typer.Option(None, help="Path to default.yaml"),
+    output: Optional[Path] = typer.Option(
+        None,
+        help="Output directory (default: viewer/data/{tile_id})",
+    ),
+    stride: Optional[int] = typer.Option(
+        None,
+        help="Mesh decimation stride (default: auto, ~256 px grid)",
+    ),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Minimal output"),
+) -> None:
+    """Export DEM mesh and ortho textures for the 3D viewer."""
+    result = export_tile_viewer_data(
+        tile_id,
+        config_path=str(config) if config else None,
+        output_dir=output,
+        stride=stride,
+    )
+    if quiet:
+        console.print(f"viewer-export OK → {result['output_dir']}")
+    else:
+        console.print(
+            f"[green]Exportiert:[/green] {result['output_dir']}\n"
+            f"  {result['vertex_count']:,} Vertices, "
+            f"{result['triangle_count']:,} Dreiecke (stride={result['stride']})"
+        )
+
+
+@app.command("viewer")
+def viewer_cmd(
+    tile_id: str = typer.Option(..., help="Tile identifier"),
+    config: Optional[Path] = typer.Option(None, help="Path to default.yaml"),
+    port: int = typer.Option(8765, help="HTTP port for the viewer"),
+    stride: Optional[int] = typer.Option(None, help="Mesh decimation stride"),
+    no_browser: bool = typer.Option(False, help="Do not open a browser tab"),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Minimal output"),
+) -> None:
+    """Export tile data and start the 3D viewer in a local web server."""
+    result = export_tile_viewer_data(
+        tile_id,
+        config_path=str(config) if config else None,
+        stride=stride,
+    )
+    viewer_dir = get_project_root() / "viewer"
+    url = f"http://127.0.0.1:{port}/?tile={tile_id}"
+
+    if not quiet:
+        console.print(
+            f"[green]Exportiert:[/green] {result['output_dir']}\n"
+            f"[bold]Viewer:[/bold] {url}"
+        )
+
+    handler = partial(
+        http.server.SimpleHTTPRequestHandler,
+        directory=str(viewer_dir),
+    )
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
+
+    if not no_browser:
+        webbrowser.open(url)
+
+    if not quiet:
+        console.print("Beenden mit Ctrl+C")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        if not quiet:
+            console.print("\nViewer beendet.")
 
 
 if __name__ == "__main__":
