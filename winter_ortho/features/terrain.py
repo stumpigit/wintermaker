@@ -161,6 +161,22 @@ def load_terrain_bands(
     return result
 
 
+def hillshade_config_for_render(
+    terrain_cfg: dict[str, Any],
+    map_shading: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Merge terrain hillshade settings with per-profile map sun direction."""
+    base = dict(terrain_cfg)
+    hill = dict(base.get("hillshade", {}))
+    if map_shading:
+        if "sun_azimuth" in map_shading:
+            hill["azimuth"] = float(map_shading["sun_azimuth"])
+        if "sun_altitude" in map_shading:
+            hill["altitude"] = float(map_shading["sun_altitude"])
+    base["hillshade"] = hill
+    return base
+
+
 def compute_generalized_hillshade(
     elevation: np.ndarray,
     resolution_m: float,

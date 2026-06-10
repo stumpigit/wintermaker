@@ -30,8 +30,8 @@ harmonize:
 terrain:
   generalized_hillshade_sigma_m: 55
   hillshade:
-    azimuth: 150
-    altitude: 25
+    azimuth: 45
+    altitude: 32
   tpi_radius_px: 5
   roughness_radius_px: 3
   flow_iterations: 3

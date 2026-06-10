@@ -4,7 +4,7 @@ from typing import Any
 
 import numpy as np
 
-from winter_ortho.features.terrain import compute_generalized_hillshade
+from winter_ortho.features.terrain import compute_generalized_hillshade, hillshade_config_for_render
 from winter_ortho.preprocessing.tiling import get_tile_grid
 from winter_ortho.rendering.base import to_float_rgb, to_uint8_rgb
 from winter_ortho.rendering.buildings import render_buildings
@@ -14,7 +14,7 @@ from winter_ortho.rendering.rock import render_rock
 from winter_ortho.rendering.paths import render_paths
 from winter_ortho.rendering.roads import render_roads
 from winter_ortho.rendering.settlement import render_settlement
-from winter_ortho.rendering.relief import apply_winter_relief
+from winter_ortho.rendering.relief import apply_map_shading, apply_winter_relief
 from winter_ortho.rendering.summer_structure import (
     apply_summer_anchored_grade,
     apply_summer_cast_shadows,
@@ -66,13 +66,17 @@ def render_winter_tile(
     road_color = np.array(render_cfg.get("road_color", [0.78, 0.80, 0.82]), dtype=np.float32)
     summer_cfg = render_cfg.get("summer_structure", {})
     cast_cfg = render_cfg.get("cast_shadows", {})
+    map_shade_cfg = render_cfg.get("map_shading", {})
     terrain_cfg = config.get("terrain", {})
+    render_hillshade_cfg = hillshade_config_for_render(terrain_cfg, map_shade_cfg)
     resolution_m = float(config.get("resolution_m", 2.0))
     hill_generalized = compute_generalized_hillshade(
         terrain["elevation"],
         resolution_m,
-        terrain_cfg,
+        render_hillshade_cfg,
     )
+    sun_azimuth = float(render_hillshade_cfg["hillshade"]["azimuth"])
+    render_hillshade = hill_generalized
     cast_shadow = summer_cast_shadow_field(
         summer_rgb,
         building_mask=exclusive_masks.get("building_mask"),
@@ -100,7 +104,7 @@ def render_winter_tile(
         snow_fraction=snow_layers["snow_fraction"],
         snow_brightness=snow_layers["snow_brightness"],
         snow_texture_strength=snow_layers["snow_texture_strength"],
-        hillshade=terrain["hillshade_winter_low_sun"],
+        hillshade=render_hillshade,
         hillshade_generalized=hill_generalized,
         cast_shadow=cast_shadow,
         snow_color=snow_color,
@@ -126,7 +130,7 @@ def render_winter_tile(
         snow_brightness=snow_layers["snow_brightness"],
         snow_texture_strength=snow_layers["snow_texture_strength"],
         snow_color=snow_color,
-        hillshade=terrain["hillshade_winter_low_sun"],
+        hillshade=render_hillshade,
         hillshade_generalized=hill_generalized,
         cast_shadow=cast_shadow,
         hillshade_strength=float(render_cfg.get("hillshade_strength_settlement", 0.14)),
@@ -150,7 +154,7 @@ def render_winter_tile(
         rock_visibility=snow_layers["rock_visibility"],
         slope=terrain["slope"],
         snow_color=snow_color,
-        hillshade=terrain["hillshade_winter_low_sun"],
+        hillshade=render_hillshade,
         hillshade_strength=float(render_cfg.get("hillshade_strength_rock", 0.18)),
         hillshade_compression=float(rock_cfg.get("hillshade_compression", 0.50)),
         snow_flattening=float(rock_cfg.get("snow_flattening", 0.40)),
@@ -170,7 +174,7 @@ def render_winter_tile(
         snow_fraction=snow_layers["snow_fraction"],
         forest_snow_intensity=snow_layers["forest_snow_intensity"],
         snow_color=snow_color,
-        hillshade=terrain["hillshade_winter_low_sun"],
+        hillshade=render_hillshade,
         contrast_reduction=float(forest_cfg.get("contrast_reduction", 0.10)),
         original_texture_visibility=float(forest_cfg.get("original_texture_visibility", 0.08)),
         crown_tophat_radius_px=int(forest_cfg.get("crown_tophat_radius_px", 4)),
@@ -204,7 +208,7 @@ def render_winter_tile(
         snow_brightness=snow_layers["snow_brightness"],
         snow_texture_strength=snow_layers["snow_texture_strength"],
         snow_color=snow_color,
-        hillshade=terrain["hillshade_winter_low_sun"],
+        hillshade=render_hillshade,
         bury_strength=float(paths_cfg.get("bury_strength", 0.90)),
         max_snow_blend=float(paths_cfg.get("max_snow_blend", 0.82)),
         hillshade_strength=float(render_cfg.get("hillshade_strength_open_land", 0.12)),
@@ -241,7 +245,7 @@ def render_winter_tile(
 
     result = apply_winter_relief(
         result,
-        hillshade=terrain["hillshade_winter_low_sun"],
+        hillshade=render_hillshade,
         hillshade_generalized=hill_generalized,
         cast_shadow=cast_shadow,
         aspect=terrain["aspect"],
@@ -250,7 +254,7 @@ def render_winter_tile(
         summer_rgb=summer_rgb,
         relief_weight=relief_weight,
         hillshade_strength=float(relief_cfg.get("hillshade_strength", 0.10)),
-        aspect_strength=float(relief_cfg.get("aspect_strength", 0.06)),
+        aspect_strength=0.0,
         compression=float(relief_cfg.get("compression", 0.32)),
         macro_hillshade_weight=float(relief_cfg.get("macro_hillshade_weight", 0.85)),
         min_snow=float(relief_cfg.get("min_snow", 0.35)),
@@ -259,6 +263,8 @@ def render_winter_tile(
         snow_tint_strength=float(relief_cfg.get("snow_tint_strength", 0.50)),
         summer_relief_weight=float(relief_cfg.get("summer_relief_weight", 0.0)),
         cast_shadow_relief_weight=float(relief_cfg.get("cast_shadow_relief_weight", 0.55)),
+        sun_azimuth=sun_azimuth,
+        south_shadow_boost=float(map_shade_cfg.get("south_shadow_boost", 1.0)),
     )
 
     result = apply_summer_anchored_grade(
@@ -275,6 +281,29 @@ def render_winter_tile(
         strength=float(cast_cfg.get("final_strength", 0.62)),
         min_snow=float(cast_cfg.get("min_snow", 0.22)),
         max_darken=float(cast_cfg.get("max_darken", 0.48)),
+    )
+
+    protect_map = np.zeros(snow_layers["snow_fraction"].shape, dtype=np.uint8)
+    for mask_name in map_shade_cfg.get("protect_masks", ["water_mask"]):
+        class_mask = exclusive_masks.get(mask_name)
+        if class_mask is not None:
+            protect_map |= class_mask
+    result = apply_map_shading(
+        result,
+        hillshade_generalized=hill_generalized,
+        aspect=terrain["aspect"],
+        slope=terrain["slope"],
+        snow_fraction=snow_layers["snow_fraction"],
+        sun_azimuth=sun_azimuth,
+        strength=float(map_shade_cfg.get("strength", 0.50)),
+        hillshade_weight=float(map_shade_cfg.get("hillshade_weight", 0.72)),
+        aspect_weight=float(map_shade_cfg.get("aspect_weight", 0.28)),
+        south_shadow_boost=float(map_shade_cfg.get("south_shadow_boost", 1.35)),
+        compression=float(map_shade_cfg.get("compression", 0.88)),
+        min_snow=float(map_shade_cfg.get("min_snow", 0.12)),
+        shade_min=float(map_shade_cfg.get("shade_min", 0.55)),
+        sun_max=float(map_shade_cfg.get("sun_max", 1.35)),
+        protect_mask=protect_map,
     )
 
     winter_uint8 = np.moveaxis(to_uint8_rgb(result), -1, 0)

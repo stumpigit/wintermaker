@@ -19,6 +19,25 @@ def desaturate(rgb: np.ndarray, strength: np.ndarray) -> np.ndarray:
     return rgb * (1.0 - strength) + lum * strength
 
 
+def aspect_relief_for_sun(
+    aspect_deg: np.ndarray,
+    sun_azimuth_deg: float,
+    strength: float,
+    *,
+    shadow_boost: float = 1.0,
+) -> np.ndarray:
+    """
+    Map-style aspect shading: bright slopes facing the sun, dark on the lee side.
+
+    aspect_deg is downslope direction (0°=N, 90°=E, 180°=S). sun_azimuth_deg is
+    the illumination azimuth (e.g. 45° = north-east).
+    """
+    facing = np.cos(np.radians(aspect_deg - sun_azimuth_deg))
+    if shadow_boost != 1.0:
+        facing = np.where(facing < 0.0, facing * shadow_boost, facing)
+    return facing * float(strength)
+
+
 def compress_hillshade(hillshade: np.ndarray, compression: float) -> np.ndarray:
     """Reduce hillshade dynamic range — deep snow blankets small terrain undulation."""
     compression = float(np.clip(compression, 0.0, 1.0))
@@ -56,6 +75,53 @@ def shade_snow_layer(
     return np.clip(layer + shade, 0.0, 1.0)
 
 
+def apply_map_shading(
+    rgb: np.ndarray,
+    *,
+    hillshade_generalized: np.ndarray,
+    aspect: np.ndarray,
+    slope: np.ndarray,
+    snow_fraction: np.ndarray,
+    sun_azimuth: float,
+    strength: float = 0.50,
+    hillshade_weight: float = 0.72,
+    aspect_weight: float = 0.28,
+    south_shadow_boost: float = 1.35,
+    compression: float = 0.88,
+    min_snow: float = 0.12,
+    shade_min: float = 0.55,
+    sun_max: float = 1.35,
+    protect_mask: np.ndarray | None = None,
+) -> np.ndarray:
+    """Cartographic exposition shading — run last so summer grading cannot flatten it."""
+    hill = compress_hillshade(hillshade_generalized, compression)
+    hill_term = (hill - 0.5) * 2.0 * float(hillshade_weight)
+    aspect_term = aspect_relief_for_sun(
+        aspect,
+        sun_azimuth,
+        float(aspect_weight),
+        shadow_boost=south_shadow_boost,
+    )
+    slope_factor = np.clip(slope / 8.0, 0.15, 1.0)
+    relief = (hill_term + aspect_term * slope_factor) * float(strength)
+
+    snow_weight = np.clip(
+        (snow_fraction - min_snow) / max(1.0 - min_snow, 1e-3),
+        0.0,
+        1.0,
+    )
+    pixel_weight = snow_weight
+    if protect_mask is not None:
+        pixel_weight = pixel_weight * (1.0 - protect_mask.astype(np.float32))
+    relief = relief * pixel_weight
+    scale = np.clip(1.0 + relief, shade_min, sun_max)
+
+    lum = luminance(rgb)
+    scaled_lum = np.clip(lum * scale, 0.0, 1.0)
+    lum_safe = np.maximum(lum, 1e-4)
+    return np.clip(rgb * (scaled_lum / lum_safe)[..., np.newaxis], 0.0, 1.0)
+
+
 def apply_winter_relief(
     rgb: np.ndarray,
     *,
@@ -77,6 +143,8 @@ def apply_winter_relief(
     snow_tint_strength: float = 0.50,
     summer_relief_weight: float = 0.0,
     cast_shadow_relief_weight: float = 0.0,
+    sun_azimuth: float = 45.0,
+    south_shadow_boost: float = 1.0,
 ) -> np.ndarray:
     """Subtle hillshade relief on snow; snowy pixels keep snow chroma, not neutral gray."""
     from winter_ortho.rendering.summer_structure import blend_macro_hillshade, summer_luminance_map
@@ -96,7 +164,12 @@ def apply_winter_relief(
         compression=compression,
     )
     hill_relief = (hill - 0.5) * 2.0 * hillshade_strength
-    aspect_relief = np.cos(np.radians(aspect - 180.0)) * aspect_strength
+    aspect_relief = aspect_relief_for_sun(
+        aspect,
+        sun_azimuth,
+        aspect_strength,
+        shadow_boost=south_shadow_boost,
+    )
     relief = hill_relief + aspect_relief
     if summer_rgb is not None and summer_relief_weight > 0:
         summer_field = summer_luminance_map(summer_rgb) - 0.5

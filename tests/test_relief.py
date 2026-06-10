@@ -1,6 +1,6 @@
 import numpy as np
 
-from winter_ortho.rendering.relief import apply_winter_relief, desaturate, luminance
+from winter_ortho.rendering.relief import apply_map_shading, apply_winter_relief, desaturate, luminance
 
 
 def test_desaturate_reduces_green_dominance():
@@ -35,6 +35,61 @@ def test_winter_relief_darkens_shade_and_brightens_sun():
     shade_lum = luminance(out)[0, 0]
     sun_lum = luminance(out)[-1, -1]
     assert sun_lum > shade_lum
+
+
+def test_map_shading_darkens_south_slopes():
+    rgb = np.full((32, 32, 3), 0.82, dtype=np.float32)
+    aspect = np.full((32, 32), 180.0, dtype=np.float32)
+    aspect[:16, :] = 0.0
+    hill = np.full((32, 32), 0.5, dtype=np.float32)
+    hill[:16, :] = 0.72
+    hill[16:, :] = 0.28
+    snow_fraction = np.full((32, 32), 0.95, dtype=np.float32)
+    slope = np.full((32, 32), 18.0, dtype=np.float32)
+    out = apply_map_shading(
+        rgb,
+        hillshade_generalized=hill,
+        aspect=aspect,
+        slope=slope,
+        snow_fraction=snow_fraction,
+        sun_azimuth=45.0,
+        strength=0.6,
+        south_shadow_boost=1.35,
+    )
+    north_lum = luminance(out)[:16].mean()
+    south_lum = luminance(out)[16:].mean()
+    assert south_lum < north_lum
+
+
+def test_ne_sun_darkens_south_slopes():
+    rgb = np.full((4, 4, 3), 0.85, dtype=np.float32)
+    hillshade = np.full((4, 4), 0.5, dtype=np.float32)
+    snow_fraction = np.full((4, 4), 0.95, dtype=np.float32)
+    snow_color = np.array([0.96, 0.98, 0.99], dtype=np.float32)
+    north = apply_winter_relief(
+        rgb,
+        hillshade=hillshade,
+        aspect=np.full((4, 4), 0.0, dtype=np.float32),
+        snow_fraction=snow_fraction,
+        snow_color=snow_color,
+        hillshade_strength=0.0,
+        aspect_strength=0.25,
+        sun_azimuth=45.0,
+        summer_relief_weight=0.0,
+    )
+    south = apply_winter_relief(
+        rgb,
+        hillshade=hillshade,
+        aspect=np.full((4, 4), 180.0, dtype=np.float32),
+        snow_fraction=snow_fraction,
+        snow_color=snow_color,
+        hillshade_strength=0.0,
+        aspect_strength=0.25,
+        sun_azimuth=45.0,
+        south_shadow_boost=1.3,
+        summer_relief_weight=0.0,
+    )
+    assert luminance(south).mean() < luminance(north).mean()
 
 
 def test_snow_flattening_reduces_hillshade_on_open_land():

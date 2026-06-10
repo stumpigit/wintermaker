@@ -17,8 +17,8 @@ open_land:
   detail_preservation: 0.55
   hillshade_compression: 0.46
   snow_flattening: 0.08
-  summer_shade_weight: 0.58
-  hillshade_shade_weight: 0.42
+  summer_shade_weight: 0.38
+  hillshade_shade_weight: 0.62
   macro_hillshade_weight: 0.90
   cast_shadow_weight: 0.32
   shadow_boost: 1.30
@@ -104,10 +104,23 @@ rendering:
   snow_color: [0.96, 0.98, 0.99]
   road_color: [0.55, 0.58, 0.62]
   noise_scale_px: 8
-  hillshade_strength_open_land: 0.30
-  hillshade_strength_rock: 0.22
-  hillshade_strength_settlement: 0.22
+  hillshade_strength_open_land: 0.32
+  hillshade_strength_rock: 0.24
+  hillshade_strength_settlement: 0.24
   hillshade_strength_forest: 0.20
+  map_shading:
+    sun_azimuth: 135
+    sun_altitude: 32
+    south_shadow_boost: 0.2
+    strength: 0.3
+    hillshade_weight: 0.74
+    aspect_weight: 0.30
+    compression: 0.90
+    min_snow: 0.10
+    shade_min: 0.52
+    sun_max: 1.38
+    protect_masks:
+      - water_mask
   cast_shadows:
     reference_sigma_px: 34
     fine_sigma_px: 7
@@ -119,16 +132,16 @@ rendering:
     max_darken: 0.50
     min_snow: 0.20
   relief:
-    hillshade_strength: 0.4
-    aspect_strength: 0.05
-    compression: 0.48
-    macro_hillshade_weight: 0.88
+    hillshade_strength: 0.26
+    aspect_strength: 0.16
+    compression: 0.52
+    macro_hillshade_weight: 0.92
     min_snow: 0.30
-    shade_min: 0.78
-    sun_max: 1.14
-    snow_tint_strength: 0.40
-    summer_relief_weight: 0.52
-    cast_shadow_relief_weight: 0.62
+    shade_min: 0.74
+    sun_max: 1.16
+    snow_tint_strength: 0.38
+    summer_relief_weight: 0.22
+    cast_shadow_relief_weight: 0.55
     class_weights:
       open_land: 0.10
       settlement: 0.12
