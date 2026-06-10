@@ -1,12 +1,22 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { Line2 } from "three/addons/lines/Line2.js";
+import { LineGeometry } from "three/addons/lines/LineGeometry.js";
+import { LineMaterial } from "three/addons/lines/LineMaterial.js";
+import { Sky } from "three/addons/objects/Sky.js";
 
 const canvas = document.getElementById("canvas");
 const statusEl = document.getElementById("status");
 const tileSelect = document.getElementById("tile-select");
 const textureSelect = document.getElementById("texture-select");
+const elevationLabel = document.getElementById("elevation-label");
+const elevationSelect = document.getElementById("elevation-select");
 const exaggerationInput = document.getElementById("exaggeration");
 const exaggerationValue = document.getElementById("exaggeration-value");
+
+// Wintermittag ~11 Uhr, typisch für die Schweiz (tief stehende Sonne im Süden)
+const WINTER_SUN_AZIMUTH_DEG = 172;
+const WINTER_SUN_ALTITUDE_DEG = 24;
 
 const renderer = new THREE.WebGLRenderer({
   canvas,
@@ -14,13 +24,13 @@ const renderer = new THREE.WebGLRenderer({
   alpha: false,
   powerPreference: "high-performance",
 });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.NoToneMapping;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xd8dde3);
 
 const camera = new THREE.PerspectiveCamera(
   50,
@@ -37,28 +47,76 @@ controls.minDistance = 20;
 controls.maxDistance = 12000;
 
 let terrainMesh = null;
-let baseHeights = null;
+let heightModels = null;
+let activeElevationModel = "base";
 let sceneMeta = null;
+let trackLines = [];
+let trackSources = [];
 const textureCache = new Map();
+
+const sky = new Sky();
+sky.scale.setScalar(450000);
+scene.add(sky);
+
+const skyUniforms = sky.material.uniforms;
+skyUniforms.turbidity.value = 2;
+skyUniforms.rayleigh.value = 1.5;
+skyUniforms.mieCoefficient.value = 0.004;
+skyUniforms.mieDirectionalG.value = 0.82;
+
+const hemisphereLight = new THREE.HemisphereLight(0xb8d9f8, 0xe8eef5, 0.42);
+scene.add(hemisphereLight);
+
+const ambientLight = new THREE.AmbientLight(0xdce8f5, 0.16);
+scene.add(ambientLight);
+
+const sunLight = new THREE.DirectionalLight(0xfff4e8, 1.4);
+sunLight.target.position.set(0, 0, 0);
+scene.add(sunLight);
+scene.add(sunLight.target);
+
+const sunDirection = new THREE.Vector3();
+updateWinterSun();
+
+function updateWinterSun(target = new THREE.Vector3(0, 0, 0)) {
+  const phi = THREE.MathUtils.degToRad(90 - WINTER_SUN_ALTITUDE_DEG);
+  const theta = THREE.MathUtils.degToRad(WINTER_SUN_AZIMUTH_DEG);
+  sunDirection.setFromSphericalCoords(1, phi, theta);
+  skyUniforms.sunPosition.value.copy(sunDirection);
+  sunLight.position.copy(sunDirection).multiplyScalar(8000).add(target);
+  sunLight.target.position.copy(target);
+}
 
 function createTerrainMaterial(texture) {
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.flipY = true;
-  texture.generateMipmaps = false;
-  texture.minFilter = THREE.LinearFilter;
+  texture.generateMipmaps = true;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
   texture.magFilter = THREE.LinearFilter;
-  texture.anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 4);
+  texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
 
-  return new THREE.MeshBasicMaterial({
+  return new THREE.MeshStandardMaterial({
     map: texture,
+    roughness: 0.92,
+    metalness: 0.0,
     side: THREE.DoubleSide,
-    transparent: false,
-    opacity: 1,
-    alphaTest: 0,
-    toneMapped: false,
-    depthWrite: true,
-    depthTest: true,
+    toneMapped: true,
   });
+}
+
+function extractHeights(positions) {
+  const heights = new Float32Array(positions.length / 3);
+  for (let vi = 0; vi < heights.length; vi++) {
+    heights[vi] = positions[vi * 3 + 1];
+  }
+  return heights;
+}
+
+function updateTerrainNormals() {
+  if (!terrainMesh) {
+    return;
+  }
+  terrainMesh.geometry.computeVertexNormals();
 }
 
 async function discoverTiles() {
@@ -115,17 +173,30 @@ async function loadTexture(url) {
   return texture;
 }
 
+function currentHeights() {
+  if (!heightModels) {
+    return null;
+  }
+  return heightModels[activeElevationModel] || heightModels.base;
+}
+
 function applyExaggeration(factor) {
-  if (!terrainMesh || !baseHeights) {
+  if (!terrainMesh) {
+    return;
+  }
+  const heights = currentHeights();
+  if (!heights) {
     return;
   }
   const positions = terrainMesh.geometry.attributes.position.array;
-  for (let vi = 0; vi < baseHeights.length; vi++) {
-    positions[vi * 3 + 1] = baseHeights[vi] * factor;
+  for (let vi = 0; vi < heights.length; vi++) {
+    positions[vi * 3 + 1] = heights[vi] * factor;
   }
   terrainMesh.geometry.attributes.position.needsUpdate = true;
+  updateTerrainNormals();
   terrainMesh.geometry.computeBoundingBox();
   terrainMesh.geometry.computeBoundingSphere();
+  updateTrackHeights(factor);
 }
 
 function frameCamera(mesh) {
@@ -136,6 +207,7 @@ function frameCamera(mesh) {
   box.getSize(size);
 
   controls.target.copy(center);
+  updateWinterSun(center);
 
   const maxDim = Math.max(size.x, size.y, size.z);
   camera.near = Math.max(maxDim / 5000, 0.5);
@@ -150,7 +222,18 @@ function frameCamera(mesh) {
   controls.update();
 }
 
+function disposeTracks() {
+  for (const line of trackLines) {
+    scene.remove(line);
+    line.geometry.dispose();
+    line.material.dispose();
+  }
+  trackLines = [];
+  trackSources = [];
+}
+
 function disposeTerrain() {
+  disposeTracks();
   if (!terrainMesh) {
     return;
   }
@@ -159,7 +242,128 @@ function disposeTerrain() {
   terrainMesh.material.map?.dispose();
   terrainMesh.material.dispose();
   terrainMesh = null;
-  baseHeights = null;
+  heightModels = null;
+}
+
+function trackPointsFromSource(source, factor) {
+  const points = [];
+  for (let vi = 0; vi < source.heights.length; vi++) {
+    points.push(source.x[vi], source.heights[vi] * factor, source.z[vi]);
+  }
+  return points;
+}
+
+function updateTrackHeights(factor) {
+  for (let ti = 0; ti < trackLines.length; ti++) {
+    const source = trackSources[ti];
+    if (!source) {
+      continue;
+    }
+    trackLines[ti].geometry.setPositions(trackPointsFromSource(source, factor));
+    trackLines[ti].computeLineDistances();
+  }
+}
+
+async function loadTracks(tileId) {
+  disposeTracks();
+  if (!sceneMeta?.tracks_file) {
+    return;
+  }
+
+  const response = await fetch(`data/${tileId}/${sceneMeta.tracks_file}`);
+  if (!response.ok) {
+    return;
+  }
+  const payload = await response.json();
+  const tracks = payload.tracks || [];
+  if (tracks.length === 0) {
+    return;
+  }
+
+  const resolution = new THREE.Vector2(window.innerWidth, window.innerHeight);
+
+  for (const track of tracks) {
+    const raw = track.positions;
+    if (!raw || raw.length < 6) {
+      continue;
+    }
+
+    const pointCount = raw.length / 3;
+    const source = {
+      x: new Float32Array(pointCount),
+      heights: new Float32Array(pointCount),
+      z: new Float32Array(pointCount),
+    };
+    for (let vi = 0; vi < pointCount; vi++) {
+      source.x[vi] = raw[vi * 3];
+      source.heights[vi] = raw[vi * 3 + 1];
+      source.z[vi] = raw[vi * 3 + 2];
+    }
+    trackSources.push(source);
+
+    const exaggeration = parseFloat(exaggerationInput.value);
+    const geometry = new LineGeometry();
+    geometry.setPositions(trackPointsFromSource(source, exaggeration));
+    const material = new LineMaterial({
+      color: 0x2288ff,
+      linewidth: 4,
+      depthTest: true,
+      depthWrite: false,
+      transparent: true,
+      opacity: 0.95,
+      worldUnits: false,
+    });
+    material.resolution.copy(resolution);
+
+    const line = new Line2(geometry, material);
+    line.computeLineDistances();
+    line.renderOrder = 2;
+    line.frustumCulled = false;
+    scene.add(line);
+    trackLines.push(line);
+  }
+}
+
+function configureElevationSelect() {
+  const hasSnowSurface =
+    sceneMeta?.has_snow_surface && sceneMeta?.elevation_models?.snow_surface;
+  elevationLabel.hidden = !hasSnowSurface;
+  if (!hasSnowSurface) {
+    activeElevationModel = "base";
+    return;
+  }
+  elevationSelect.value = activeElevationModel;
+}
+
+async function loadElevationModels(base, files) {
+  const models = {
+    base: null,
+    snow_surface: null,
+  };
+
+  const baseBuf = await loadBinary(`${base}/${files.positions}`);
+  models.base = extractHeights(new Float32Array(baseBuf));
+
+  const snowFile = sceneMeta?.elevation_models?.snow_surface;
+  if (snowFile) {
+    try {
+      const snowBuf = await loadBinary(`${base}/${snowFile}`);
+      models.snow_surface = extractHeights(new Float32Array(snowBuf));
+    } catch {
+      models.snow_surface = null;
+    }
+  }
+
+  return models;
+}
+
+function switchElevationModel(modelKey) {
+  if (!terrainMesh || !heightModels || !heightModels[modelKey]) {
+    return;
+  }
+  activeElevationModel = modelKey;
+  applyExaggeration(parseFloat(exaggerationInput.value));
+  frameCamera(terrainMesh);
 }
 
 async function loadTile(tileId) {
@@ -176,6 +380,7 @@ async function loadTile(tileId) {
     );
   }
   sceneMeta = await metaResponse.json();
+  activeElevationModel = sceneMeta.has_snow_surface ? "snow_surface" : "base";
 
   const [positionsBuf, uvsBuf, indicesBuf, winterTexture] = await Promise.all([
     loadBinary(`${base}/${sceneMeta.files.positions}`),
@@ -183,6 +388,8 @@ async function loadTile(tileId) {
     loadBinary(`${base}/${sceneMeta.files.indices}`),
     loadTexture(`${base}/${sceneMeta.textures.winter}`),
   ]);
+
+  heightModels = await loadElevationModels(base, sceneMeta.files);
 
   const positions = new Float32Array(positionsBuf);
   const uvs = new Float32Array(uvsBuf);
@@ -193,15 +400,11 @@ async function loadTile(tileId) {
     indices[i] = rawIndices[i];
   }
 
-  baseHeights = new Float32Array(positions.length / 3);
-  for (let vi = 0; vi < baseHeights.length; vi++) {
-    baseHeights[vi] = positions[vi * 3 + 1];
-  }
-
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
   geometry.setIndex(new THREE.Uint32BufferAttribute(indices, 1));
+  geometry.computeVertexNormals();
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
 
@@ -210,8 +413,15 @@ async function loadTile(tileId) {
   terrainMesh.frustumCulled = false;
   scene.add(terrainMesh);
 
+  configureElevationSelect();
+  if (sceneMeta.has_snow_surface && heightModels.snow_surface) {
+    elevationSelect.value = "snow_surface";
+    activeElevationModel = "snow_surface";
+  }
+
   const exaggeration = parseFloat(exaggerationInput.value);
   applyExaggeration(exaggeration);
+  await loadTracks(tileId);
   frameCamera(terrainMesh);
 
   textureSelect.replaceChildren();
@@ -232,7 +442,11 @@ async function loadTile(tileId) {
   const texInfo = sceneMeta.texture_width
     ? ` · Textur ${sceneMeta.texture_width}×${sceneMeta.texture_height}`
     : "";
-  statusEl.textContent = `${tileId} · ${vertices} Punkte · ${triangles} Dreiecke${texInfo}`;
+  const elevInfo = sceneMeta.has_snow_surface ? " · Schneeoberfläche verfügbar" : "";
+  const trackInfo = trackLines.length > 0 ? ` · ${trackLines.length} GPX-Route(n)` : "";
+  statusEl.textContent =
+    `${tileId} · ${vertices} Punkte · ${triangles} Dreiecke${texInfo}${elevInfo}${trackInfo}` +
+    ` · Wintersonne 11 Uhr`;
 }
 
 async function switchTexture(kind) {
@@ -263,6 +477,10 @@ textureSelect.addEventListener("change", () => {
   switchTexture(textureSelect.value).catch(console.error);
 });
 
+elevationSelect.addEventListener("change", () => {
+  switchElevationModel(elevationSelect.value);
+});
+
 exaggerationInput.addEventListener("input", () => {
   const value = parseFloat(exaggerationInput.value);
   exaggerationValue.textContent = `${value.toFixed(1)}×`;
@@ -274,6 +492,10 @@ window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  const resolution = new THREE.Vector2(window.innerWidth, window.innerHeight);
+  for (const line of trackLines) {
+    line.material.resolution.copy(resolution);
+  }
 });
 
 function animate() {

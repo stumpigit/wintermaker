@@ -30,6 +30,13 @@
             <option value="summer">Sommer</option>
           </select>
         </label>
+        <label id="elevation-label" hidden>
+          Gelände
+          <select id="elevation-select">
+            <option value="base">Basis-DEM</option>
+            <option value="snow_surface">Schneeoberfläche</option>
+          </select>
+        </label>
         <label>
           Höhenüberhöhung
           <input id="exaggeration" type="range" min="0.5" max="5" step="0.1" value="1.0" />
@@ -41,6 +48,6 @@
       </p>
     </div>
     <canvas id="canvas"></canvas>
-    <script type="module" src="main.js?v=5"></script>
+    <script type="module" src="main.js?v=8"></script>
   </body>
 </html>

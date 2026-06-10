@@ -6,6 +6,7 @@ import numpy as np
 from scipy import ndimage
 
 from winter_ortho.preprocessing.tiling import get_tile_grid
+from winter_ortho.snow_model.surface import resolve_snow_surface_config
 from winter_ortho.utils.paths import TilePaths
 from winter_ortho.utils.progress import PipelineProgress
 from winter_ortho.utils.raster import read_raster, write_cog
@@ -30,6 +31,7 @@ def compute_snow_layers(
     class_masks: dict[str, np.ndarray],
     terrain: dict[str, np.ndarray],
     *,
+    snow_thickness: np.ndarray | None = None,
     progress: PipelineProgress | None = None,
 ) -> dict[str, np.ndarray]:
     grid = get_tile_grid(config, paths.tile_id)
@@ -49,6 +51,13 @@ def compute_snow_layers(
     road_visibility = np.zeros((height, width), dtype=np.float32)
     roof_snow_intensity = np.zeros((height, width), dtype=np.float32)
     ice_probability = np.zeros((height, width), dtype=np.float32)
+
+    use_thickness = snow_thickness is not None and "snow_surface" in profile
+    thickness_fraction = None
+    if use_thickness:
+        surface_cfg = resolve_snow_surface_config(profile)
+        base_height = max(surface_cfg["base_snow_height_m"], 1e-3)
+        thickness_fraction = np.clip(snow_thickness / base_height, 0.0, 1.0).astype(np.float32)
 
     elev_mod = _elevation_modifier(terrain["elevation"], profile.get("elevation", {}))
     aspect_mod = _aspect_modifier(terrain["aspect"], profile.get("aspect", {}))
@@ -93,6 +102,7 @@ def compute_snow_layers(
         elev_mod,
         hillshade_mod,
         profile,
+        thickness_fraction=thickness_fraction,
     ))
     apply_exclusive("rock_or_bare_ground_mask", lambda m: _apply_rock(
         m,
@@ -103,9 +113,16 @@ def compute_snow_layers(
         tpi_mod,
         aspect_mod,
         profile,
+        thickness_fraction=thickness_fraction,
     ))
     apply_exclusive("open_land_mask", lambda m: _apply_open_land(
-        m, snow_fraction, snow_brightness, snow_texture_strength, elev_mod, profile
+        m,
+        snow_fraction,
+        snow_brightness,
+        snow_texture_strength,
+        elev_mod,
+        profile,
+        thickness_fraction=thickness_fraction,
     ))
 
     shore_width = int(profile["water"].get("shore_snow_width_px", 3))
@@ -117,7 +134,17 @@ def compute_snow_layers(
             shore_snow = float(profile["water"].get("shore_snow_intensity", 0.4))
             snow_fraction[shore] = np.maximum(snow_fraction[shore], shore_snow)
 
-    modulated = snow_fraction + aspect_mod * 0.09 + tpi_mod * 0.10
+    if use_thickness:
+        natural_masks = (
+            class_masks_bool.get("open_land_mask", np.zeros_like(claimed))
+            | class_masks_bool.get("forest_mask", np.zeros_like(claimed))
+            | class_masks_bool.get("rock_or_bare_ground_mask", np.zeros_like(claimed))
+        )
+        natural = claimed & natural_masks
+        modulated = snow_fraction.copy()
+        modulated[natural] = snow_fraction[natural] + aspect_mod[natural] * 0.05
+    else:
+        modulated = snow_fraction + aspect_mod * 0.09 + tpi_mod * 0.10
     snow_fraction[:] = np.clip(np.where(claimed, modulated, snow_fraction), 0, 1)
 
     layers = {
@@ -226,15 +253,25 @@ def _apply_forest(
     elev_mod: np.ndarray,
     hillshade_mod: np.ndarray,
     profile: dict[str, Any],
+    *,
+    thickness_fraction: np.ndarray | None = None,
 ) -> None:
     forest_cfg = profile["forest"]
     flo, fhi = forest_cfg["snow_fraction"]
-    forest_base = (flo + fhi) / 2.0 + elev_mod[mask] * 0.42
-    snow_fraction[mask] = np.clip(
-        forest_base + hillshade_mod[mask] * 0.18,
-        flo,
-        fhi,
-    )
+    if thickness_fraction is not None:
+        canopy_factor = float(forest_cfg.get("canopy_thickness_factor", 0.82))
+        snow_fraction[mask] = np.clip(
+            flo + (fhi - flo) * thickness_fraction[mask] * canopy_factor,
+            flo,
+            fhi,
+        )
+    else:
+        forest_base = (flo + fhi) / 2.0 + elev_mod[mask] * 0.42
+        snow_fraction[mask] = np.clip(
+            forest_base + hillshade_mod[mask] * 0.18,
+            flo,
+            fhi,
+        )
     forest_snow_intensity[mask] = forest_cfg["forest_snow_intensity"]
     snow_texture_strength[mask] = forest_cfg.get("snow_texture_strength", 0.25)
 
@@ -248,6 +285,8 @@ def _apply_rock(
     tpi_mod: np.ndarray,
     aspect_mod: np.ndarray,
     profile: dict[str, Any],
+    *,
+    thickness_fraction: np.ndarray | None = None,
 ) -> None:
     rock_cfg = profile["rock"]
     gentle_max = float(rock_cfg.get("gentle_slope_max_deg", 28))
@@ -267,15 +306,26 @@ def _apply_rock(
     rock_visibility[mask] = rock_vis[mask]
 
     gentle_boost = float(rock_cfg.get("gentle_snow_boost", 0.22))
-    rock_snow = np.clip(
-        rock_cfg["max_snow_fraction"]
-        - rock_vis * 0.20
-        + np.clip(tpi_mod, 0, 1) * 0.18
-        - aspect_mod * rock_cfg.get("aspect_south_penalty", 0.12)
-        + gentle_factor * gentle_boost,
-        0.20,
-        0.97,
-    )
+    if thickness_fraction is not None:
+        rock_base = thickness_fraction * rock_cfg["max_snow_fraction"]
+        rock_snow = np.clip(
+            rock_base
+            - rock_vis * 0.20
+            - aspect_mod * rock_cfg.get("aspect_south_penalty", 0.12)
+            + gentle_factor * gentle_boost * 0.5,
+            0.20,
+            0.97,
+        )
+    else:
+        rock_snow = np.clip(
+            rock_cfg["max_snow_fraction"]
+            - rock_vis * 0.20
+            + np.clip(tpi_mod, 0, 1) * 0.18
+            - aspect_mod * rock_cfg.get("aspect_south_penalty", 0.12)
+            + gentle_factor * gentle_boost,
+            0.20,
+            0.97,
+        )
     snow_fraction[mask] = rock_snow[mask]
 
 
@@ -286,10 +336,15 @@ def _apply_open_land(
     snow_texture_strength: np.ndarray,
     elev_mod: np.ndarray,
     profile: dict[str, Any],
+    *,
+    thickness_fraction: np.ndarray | None = None,
 ) -> None:
     open_cfg = profile["open_land"]
     lo, hi = open_cfg["snow_fraction"]
-    snow_fraction[mask] = np.clip(lo + (hi - lo) * 0.68 + elev_mod[mask] * 0.5, lo, hi)
+    if thickness_fraction is not None:
+        snow_fraction[mask] = np.clip(lo + (hi - lo) * thickness_fraction[mask], lo, hi)
+    else:
+        snow_fraction[mask] = np.clip(lo + (hi - lo) * 0.68 + elev_mod[mask] * 0.5, lo, hi)
     snow_brightness[mask] = open_cfg["snow_brightness"]
     snow_texture_strength[mask] = open_cfg["snow_texture_strength"]
 

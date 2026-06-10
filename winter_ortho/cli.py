@@ -101,11 +101,47 @@ def terrain(
         console.print(f"terrain OK → {result['feature_count']} features")
 
 
+@app.command("snow-surface")
+def snow_surface_cmd(
+    tile_id: str = typer.Option(..., help="Tile identifier"),
+    profile: str = typer.Option("davos", help="Rendering profile name"),
+    config: Optional[Path] = typer.Option(None, help="Path to default.yaml"),
+    snow_height: Optional[float] = typer.Option(
+        None,
+        "--snow-height",
+        help="Override base snow height in meters (e.g. 2.0)",
+    ),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Minimal output"),
+) -> None:
+    """Compute snow-covered surface DEM and thickness raster."""
+    result = _run_step(
+        step_key="snow_surface",
+        title="Schneeoberfläche",
+        tile_id=tile_id,
+        quiet=quiet,
+        profile=profile,
+        fn=lambda p: pipeline.run_snow_surface(
+            tile_id,
+            profile,
+            str(config) if config else None,
+            snow_height_m=snow_height,
+            progress=p,
+        ),
+    )
+    if quiet:
+        console.print(f"snow-surface OK → {result['layer_count']} layers")
+
+
 @app.command("snow")
 def snow_cmd(
     tile_id: str = typer.Option(..., help="Tile identifier"),
     profile: str = typer.Option("davos", help="Rendering profile name"),
     config: Optional[Path] = typer.Option(None, help="Path to default.yaml"),
+    snow_height: Optional[float] = typer.Option(
+        None,
+        "--snow-height",
+        help="Override base snow height in meters (e.g. 2.0)",
+    ),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Minimal output"),
 ) -> None:
     """Compute snow coverage intermediate layers."""
@@ -116,7 +152,11 @@ def snow_cmd(
         quiet=quiet,
         profile=profile,
         fn=lambda p: pipeline.run_snow(
-            tile_id, profile, str(config) if config else None, progress=p
+            tile_id,
+            profile,
+            str(config) if config else None,
+            snow_height_m=snow_height,
+            progress=p,
         ),
     )
     if quiet:
@@ -339,6 +379,10 @@ def viewer_export_cmd(
         None,
         help="Mesh decimation stride (default: auto, ~256 px grid)",
     ),
+    max_texture_dim: int = typer.Option(
+        1024,
+        help="Max orthophoto texture edge length in pixels (default: 1024)",
+    ),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Minimal output"),
 ) -> None:
     """Export DEM mesh and ortho textures for the 3D viewer."""
@@ -347,6 +391,7 @@ def viewer_export_cmd(
         config_path=str(config) if config else None,
         output_dir=output,
         stride=stride,
+        max_texture_dim=max_texture_dim,
     )
     if quiet:
         console.print(f"viewer-export OK → {result['output_dir']}")
@@ -354,7 +399,9 @@ def viewer_export_cmd(
         console.print(
             f"[green]Exportiert:[/green] {result['output_dir']}\n"
             f"  {result['vertex_count']:,} Vertices, "
-            f"{result['triangle_count']:,} Dreiecke (stride={result['stride']})"
+            f"{result['triangle_count']:,} Dreiecke (stride={result['stride']})\n"
+            f"  Textur {result['texture_width']}×{result['texture_height']} px "
+            f"(stride={result['texture_stride']}, max={result['max_texture_dim']})"
         )
 
 
@@ -364,23 +411,46 @@ def viewer_cmd(
     config: Optional[Path] = typer.Option(None, help="Path to default.yaml"),
     port: int = typer.Option(8765, help="HTTP port for the viewer"),
     stride: Optional[int] = typer.Option(None, help="Mesh decimation stride"),
+    max_texture_dim: int = typer.Option(
+        1024,
+        help="Max orthophoto texture edge length in pixels",
+    ),
+    re_export: bool = typer.Option(
+        False,
+        "--re-export",
+        help="Re-run viewer-export even if data already exists",
+    ),
     no_browser: bool = typer.Option(False, help="Do not open a browser tab"),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Minimal output"),
 ) -> None:
-    """Export tile data and start the 3D viewer in a local web server."""
-    result = export_tile_viewer_data(
-        tile_id,
-        config_path=str(config) if config else None,
-        stride=stride,
-    )
+    """Start the 3D viewer (exports tile data only when missing or --re-export)."""
+    data_dir = get_project_root() / "viewer" / "data" / tile_id
+    if re_export or not (data_dir / "scene.json").exists():
+        result = export_tile_viewer_data(
+            tile_id,
+            config_path=str(config) if config else None,
+            stride=stride,
+            max_texture_dim=max_texture_dim,
+        )
+        if not quiet:
+            console.print(
+                f"[green]Exportiert:[/green] {result['output_dir']}\n"
+                f"  {result['vertex_count']:,} Vertices, "
+                f"{result['triangle_count']:,} Dreiecke (stride={result['stride']})\n"
+                f"  Textur {result['texture_width']}×{result['texture_height']} px "
+                f"(stride={result['texture_stride']}, max={result['max_texture_dim']})"
+            )
+    elif not quiet:
+        console.print(
+            f"[dim]Nutze vorhandenen Export:[/dim] {data_dir}\n"
+            "[dim](--re-export zum Neu-Exportieren mit anderen Qualitätsparametern)[/dim]"
+        )
+
     viewer_dir = get_project_root() / "viewer"
     url = f"http://127.0.0.1:{port}/?tile={tile_id}"
 
     if not quiet:
-        console.print(
-            f"[green]Exportiert:[/green] {result['output_dir']}\n"
-            f"[bold]Viewer:[/bold] {url}"
-        )
+        console.print(f"[bold]Viewer:[/bold] {url}")
 
     handler = partial(
         http.server.SimpleHTTPRequestHandler,

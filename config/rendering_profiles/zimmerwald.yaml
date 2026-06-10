@@ -1,4 +1,14 @@
 profile: zimmerwald
+
+snow_surface:
+  base_snow_height_m: 2.0
+  max_accumulation_slope_deg: 30
+  smoothing_sigma_m: 20
+  valley_deposition_factor: 0.30
+  ridge_scour_factor: 0.50
+  windward_aspect_penalty: 0.15
+  steep_slope_thickness_factor: 0.35
+
 elevation:
   reference_m: 1560
   snow_increase_per_100m: 0.04
@@ -16,7 +26,7 @@ open_land:
   max_snow_blend: 1.0
   detail_preservation: 0.55
   hillshade_compression: 0.46
-  snow_flattening: 0.22
+  snow_flattening: 0.12
   summer_shade_weight: 0.22
   hillshade_shade_weight: 0.78
   macro_hillshade_weight: 0.90
@@ -66,7 +76,7 @@ rock:
   gentle_snow_boost: 0.36
   gentle_render_boost: 0.30
   hillshade_compression: 0.55
-  snow_flattening: 0.26
+  snow_flattening: 0.16
   summer_shade_weight: 0.38
   hillshade_shade_weight: 0.62
   shadow_boost: 1.38

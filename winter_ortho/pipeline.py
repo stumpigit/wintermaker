@@ -12,6 +12,7 @@ from winter_ortho.preprocessing.tiling import get_tile_grid
 from winter_ortho.qa.geometry_checks import run_qa
 from winter_ortho.rendering.compose import render_winter_tile
 from winter_ortho.snow_model.rules import compute_snow_layers
+from winter_ortho.snow_model.surface import compute_snow_surface
 from winter_ortho.utils.config import load_class_rules, load_config, load_profile
 from winter_ortho.utils.paths import tile_paths
 from winter_ortho.utils.progress import PipelineProgress
@@ -21,6 +22,7 @@ PIPELINE_STEPS = [
     ("harmonize", "Datenharmonisierung", "Orthofoto + DEM auf gemeinsames Raster"),
     ("masks", "Geometrische Masken", "TLM3D-Vektoren rasterisieren"),
     ("terrain", "Terrain-Features", "Hang, Exposition, Hillshade aus DEM"),
+    ("snow_surface", "Schneeoberfläche", "DEM-Glättung und Schneedicke in Metern"),
     ("snow", "Schneebedeckungsmodell", "snow_fraction und Zwischenlayer"),
     ("render", "Winter-Rendering", "Regelbasiertes Winter-Orthofoto"),
     ("qa", "Qualitätskontrolle", "Geometrie- und Plausibilitätschecks"),
@@ -49,6 +51,16 @@ def _load_class_masks(paths) -> dict[str, Any]:
 
 def _load_terrain(paths) -> dict[str, Any]:
     return load_terrain_bands(paths, SNOW_TERRAIN_BANDS)
+
+
+def _load_snow_surface(paths) -> dict[str, Any] | None:
+    if not paths.snow_thickness_m.exists():
+        return None
+    layers: dict[str, np.ndarray] = {}
+    for name in ("snow_surface_dem", "snow_thickness_m", "accumulation_mask"):
+        data, _ = read_raster(str(getattr(paths, name)))
+        layers[name] = data[0] if data.ndim == 3 else data
+    return layers
 
 
 def _load_snow_layers(paths) -> dict[str, Any]:
@@ -131,22 +143,66 @@ def run_terrain(
     return {"feature_count": len(features)}
 
 
-def run_snow(
+def run_snow_surface(
     tile_id: str,
     profile_name: str = "davos",
     config_path: str | None = None,
     *,
+    snow_height_m: float | None = None,
     progress: PipelineProgress | None = None,
 ) -> dict[str, Any]:
     config = load_config(config_path)
     profile = load_profile(profile_name)
     paths = tile_paths(config, tile_id)
     if progress:
-        progress.substep("Loading masks and terrain features")
+        progress.substep("Loading terrain features")
+    terrain = _load_terrain(paths)
+    arrays = compute_snow_surface(
+        config,
+        profile,
+        paths,
+        terrain,
+        snow_height_m=snow_height_m,
+        progress=progress,
+    )
+    return {"layer_count": len(arrays)}
+
+
+def run_snow(
+    tile_id: str,
+    profile_name: str = "davos",
+    config_path: str | None = None,
+    *,
+    snow_height_m: float | None = None,
+    progress: PipelineProgress | None = None,
+) -> dict[str, Any]:
+    config = load_config(config_path)
+    profile = load_profile(profile_name)
+    paths = tile_paths(config, tile_id)
+    if progress:
+        progress.substep("Loading masks, terrain, and snow surface")
     class_masks = _load_class_masks(paths)
     terrain = _load_terrain(paths)
+    snow_surface = _load_snow_surface(paths)
+    if snow_surface is None:
+        if progress:
+            progress.substep("Snow surface missing — computing inline")
+        snow_surface = compute_snow_surface(
+            config,
+            profile,
+            paths,
+            terrain,
+            snow_height_m=snow_height_m,
+            progress=progress,
+        )
     layers = compute_snow_layers(
-        config, profile, paths, class_masks, terrain, progress=progress
+        config,
+        profile,
+        paths,
+        class_masks,
+        terrain,
+        snow_thickness=snow_surface.get("snow_thickness_m"),
+        progress=progress,
     )
     return {"layer_count": len(layers)}
 
@@ -162,12 +218,20 @@ def run_render(
     profile = load_profile(profile_name)
     paths = tile_paths(config, tile_id)
     if progress:
-        progress.substep("Loading masks, snow layers, terrain")
+        progress.substep("Loading masks, snow layers, terrain, snow surface")
     class_masks = _load_class_masks(paths)
     terrain = _load_terrain(paths)
     snow_layers = _load_snow_layers(paths)
+    snow_surface = _load_snow_surface(paths)
     render_winter_tile(
-        config, profile, paths, class_masks, snow_layers, terrain, progress=progress
+        config,
+        profile,
+        paths,
+        class_masks,
+        snow_layers,
+        terrain,
+        snow_surface=snow_surface,
+        progress=progress,
     )
     return {"output": str(paths.winter_rgb)}
 
@@ -206,6 +270,7 @@ def run_all(
         lambda: run_harmonize(tile_id, config_path, progress=progress),
         lambda: run_masks(tile_id, config_path, progress=progress),
         lambda: run_terrain(tile_id, config_path, progress=progress),
+        lambda: run_snow_surface(tile_id, profile_name, config_path, progress=progress),
         lambda: run_snow(tile_id, profile_name, config_path, progress=progress),
         lambda: run_render(tile_id, profile_name, config_path, progress=progress),
         lambda: run_qa_step(tile_id, config_path, progress=progress),
@@ -234,6 +299,8 @@ def _step_summary(step_key: str, result: dict[str, Any]) -> str:
         return f"{result['mask_count']} masks"
     if step_key == "terrain":
         return f"{result['feature_count']} features"
+    if step_key == "snow_surface":
+        return f"{result['layer_count']} layers"
     if step_key == "snow":
         return f"{result['layer_count']} layers"
     if step_key == "render":

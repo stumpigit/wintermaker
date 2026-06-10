@@ -5,6 +5,7 @@ from typing import Any
 import numpy as np
 
 from winter_ortho.features.terrain import compute_generalized_hillshade, hillshade_config_for_render
+from winter_ortho.snow_model.surface import resolve_snow_surface_config
 from winter_ortho.preprocessing.tiling import get_tile_grid
 from winter_ortho.rendering.base import to_float_rgb, to_uint8_rgb
 from winter_ortho.rendering.buildings import render_buildings
@@ -38,6 +39,25 @@ RENDER_STEPS = [
 ]
 
 
+def blend_hillshade_for_snow(
+    hillshade_base: np.ndarray,
+    hillshade_snow: np.ndarray,
+    snow_fraction: np.ndarray,
+    slope: np.ndarray,
+    *,
+    max_accumulation_slope_deg: float,
+    accumulation_mask: np.ndarray | None = None,
+) -> np.ndarray:
+    if accumulation_mask is None:
+        accumulation = slope < max_accumulation_slope_deg
+    else:
+        accumulation = accumulation_mask > 0
+    weight = np.clip(snow_fraction, 0.0, 1.0) * accumulation.astype(np.float32)
+    return (
+        hillshade_base * (1.0 - weight) + hillshade_snow * weight
+    ).astype(np.float32)
+
+
 def render_winter_tile(
     config: dict[str, Any],
     profile: dict[str, Any],
@@ -46,6 +66,7 @@ def render_winter_tile(
     snow_layers: dict[str, np.ndarray],
     terrain: dict[str, np.ndarray],
     *,
+    snow_surface: dict[str, np.ndarray] | None = None,
     progress: PipelineProgress | None = None,
 ) -> np.ndarray:
     grid = get_tile_grid(config, paths.tile_id)
@@ -77,6 +98,21 @@ def render_winter_tile(
     )
     sun_azimuth = float(render_hillshade_cfg["hillshade"]["azimuth"])
     render_hillshade = hill_generalized
+    if snow_surface is not None and "snow_surface" in profile:
+        surface_cfg = resolve_snow_surface_config(profile)
+        hill_snow = compute_generalized_hillshade(
+            snow_surface["snow_surface_dem"],
+            resolution_m,
+            render_hillshade_cfg,
+        )
+        render_hillshade = blend_hillshade_for_snow(
+            hill_generalized,
+            hill_snow,
+            snow_layers["snow_fraction"],
+            terrain["slope"],
+            max_accumulation_slope_deg=surface_cfg["max_accumulation_slope_deg"],
+            accumulation_mask=snow_surface.get("accumulation_mask"),
+        )
     cast_shadow = summer_cast_shadow_field(
         summer_rgb,
         building_mask=exclusive_masks.get("building_mask"),

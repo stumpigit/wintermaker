@@ -70,6 +70,18 @@ class TilePaths:
         return self.intermediate_dir / "terrain_features.tif"
 
     @property
+    def snow_surface_dem(self) -> Path:
+        return self.intermediate_dir / "snow_surface_dem.tif"
+
+    @property
+    def snow_thickness_m(self) -> Path:
+        return self.intermediate_dir / "snow_thickness_m.tif"
+
+    @property
+    def accumulation_mask(self) -> Path:
+        return self.intermediate_dir / "accumulation_mask.tif"
+
+    @property
     def snow_fraction(self) -> Path:
         return self.output_dir / f"{self.tile_id}_snow_fraction.tif"
 
