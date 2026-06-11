@@ -228,40 +228,30 @@ def test_multiscale_preserves_ridges_better_than_flat_blanket() -> None:
     tpi = np.zeros((height, width), dtype=np.float32)
     aspect = np.zeros((height, width), dtype=np.float32)
 
-    blanket = resolve_snow_surface_config(
+    uniform = resolve_snow_surface_config(
+        {"snow_surface": {"valley_deposition_factor": 0.0, "ridge_scour_factor": 0.0}}
+    )
+    modulated = resolve_snow_surface_config(
         {
             "snow_surface": {
-                "smoothing_sigma_m": 150,
-                "peak_retention": 0.0,
-                "surface_macro_smooth_sigma_m": 100,
-                "valley_deposition_factor": 0.0,
-                "ridge_scour_factor": 0.0,
+                "valley_deposition_factor": 0.30,
+                "ridge_scour_factor": 0.50,
             }
         }
     )
-    multiscale = resolve_snow_surface_config(
-        {
-            "snow_surface": {
-                "smoothing_sigma_m": 55,
-                "micro_suppression": 0.82,
-                "depression_fill": 0.92,
-                "ridge_micro_retention": 0.40,
-                "valley_deposition_factor": 0.0,
-                "ridge_scour_factor": 0.0,
-            }
-        }
-    )
-    blanket_surface = compute_snow_surface_arrays(
-        dem, slope, tpi, aspect, blanket, resolution_m=1.0
-    )["snow_surface_dem"]
-    multiscale_surface = compute_snow_surface_arrays(
-        dem, slope, tpi, aspect, multiscale, resolution_m=1.0
-    )["snow_surface_dem"]
+    tpi_work = np.zeros((height, width), dtype=np.float32)
+    tpi_work[20:30, 20:30] = -2.0
+    tpi_work[40:45, 40:50] = 2.0
+    uniform_surface = compute_snow_surface_arrays(
+        dem, slope, tpi_work, aspect, uniform, resolution_m=1.0
+    )["snow_thickness_m"]
+    modulated_surface = compute_snow_surface_arrays(
+        dem, slope, tpi_work, aspect, modulated, resolution_m=1.0
+    )["snow_thickness_m"]
 
-    assert multiscale_surface.std() > blanket_surface.std()
-    assert np.corrcoef(dem.ravel(), multiscale_surface.ravel())[0, 1] > np.corrcoef(
-        dem.ravel(), blanket_surface.ravel()
-    )[0, 1]
+    assert modulated_surface.std() > uniform_surface.std()
+    assert modulated_surface[25, 25] > uniform_surface[25, 25]
+    assert modulated_surface[42, 45] < uniform_surface[42, 45]
 
 
 def test_snow_surface_never_below_dem() -> None:

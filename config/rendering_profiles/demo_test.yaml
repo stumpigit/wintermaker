@@ -1,6 +1,6 @@
 profile: demo_test
 snow_surface:  
-  base_snow_height_m: 7.0
+  base_snow_height_m: 2.0
   max_accumulation_slope_deg: 35
   accumulation_transition_deg: 15
   accumulation_edge_feather_m: 30

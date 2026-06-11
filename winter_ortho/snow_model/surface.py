@@ -57,8 +57,6 @@ def compute_snow_surface_arrays(
     max_slope = cfg["max_accumulation_slope_deg"]
 
     slope_weight = _resolve_slope_weight(slope, cfg, resolution_m)
-    edge_weight = _edge_feather_weight(slope, cfg, resolution_m)
-    snow_base = _compute_snow_base(dem, cfg, resolution_m)
 
     tpi_work = tpi.astype(np.float64)
     tpi_sigma_m = float(cfg.get("tpi_smoothing_sigma_m", 0.0))
@@ -87,19 +85,9 @@ def compute_snow_surface_arrays(
             sigma=thickness_sigma_px,
         ).astype(np.float32)
 
-    snow_cap = np.maximum(snow_base + thickness, dem)
-    shaped_layer = snow_cap - dem
-    # Only taper relief above the uniform blanket toward cliff edges — never pull below thickness.
-    shape_excess = np.maximum(shaped_layer - thickness, 0.0).astype(np.float32)
-    snow_layer = (
-        thickness * slope_weight + shape_excess * edge_weight * slope_weight
-    ).astype(np.float32)
+    # Uniform blanket: modulated thickness on flat ground, tapered on steep faces.
     on_accumulation = slope < max_slope
-    snow_layer = np.where(
-        on_accumulation,
-        np.maximum(snow_layer, thickness * slope_weight),
-        snow_layer,
-    ).astype(np.float32)
+    snow_layer = (thickness * slope_weight).astype(np.float32)
 
     snow_surface = (dem + snow_layer).astype(np.float32)
     smooth_weight = _transition_smooth_weight(slope, cfg, resolution_m)
@@ -107,8 +95,8 @@ def compute_snow_surface_arrays(
     snow_thickness = (snow_surface - dem).astype(np.float32)
     min_thickness = np.where(
         on_accumulation,
+        thickness,
         thickness * slope_weight,
-        thickness * slope_weight * edge_weight,
     ).astype(np.float32)
     snow_thickness = np.maximum(snow_thickness, min_thickness).astype(np.float32)
     snow_surface = (dem + snow_thickness).astype(np.float32)
