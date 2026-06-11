@@ -57,6 +57,7 @@ def compute_snow_surface_arrays(
     max_slope = cfg["max_accumulation_slope_deg"]
 
     blend_weight = _resolve_blend_weight(slope, cfg, resolution_m)
+    ground_reference = _ground_reference_surface(dem, cfg, resolution_m)
 
     tpi_work = tpi.astype(np.float64)
     tpi_sigma_m = float(cfg.get("tpi_smoothing_sigma_m", 0.0))
@@ -85,12 +86,11 @@ def compute_snow_surface_arrays(
             sigma=thickness_sigma_px,
         ).astype(np.float32)
 
-    # Uniform blanket, tapered by slope and horizontal distance to steep faces.
+    # Blanket on a leveled ground reference, tapered toward steep faces.
     on_accumulation = slope < max_slope
     snow_layer = (thickness * blend_weight).astype(np.float32)
-
-    snow_surface = (dem + snow_layer).astype(np.float32)
-    smooth_weight = _transition_smooth_weight(blend_weight)
+    snow_surface = (ground_reference + snow_layer).astype(np.float32)
+    smooth_weight = _surface_smooth_weight(blend_weight, cfg)
     snow_surface = _apply_surface_smoothing(snow_surface, smooth_weight, cfg, resolution_m)
     snow_thickness = (snow_surface - dem).astype(np.float32)
     edge_weight = _edge_feather_weight(slope, cfg, resolution_m)
@@ -196,6 +196,19 @@ def _resolve_blend_weight(
     return (slope_weight * edge_weight).astype(np.float32)
 
 
+def _ground_reference_surface(
+    dem: np.ndarray,
+    cfg: dict[str, float],
+    resolution_m: float,
+) -> np.ndarray:
+    """Blend raw DEM with macro-smoothed snow base; strength from micro_suppression."""
+    leveling = float(cfg.get("micro_suppression", 0.0))
+    if leveling <= 0.0:
+        return dem.astype(np.float32)
+    snow_base = _compute_snow_base(dem, cfg, resolution_m)
+    return (dem * (1.0 - leveling) + snow_base * leveling).astype(np.float32)
+
+
 def _compute_snow_base(
     dem: np.ndarray,
     cfg: dict[str, float],
@@ -223,9 +236,15 @@ def _compute_snow_base(
     return (macro + excess * peak_retention).astype(np.float32)
 
 
-def _transition_smooth_weight(blend_weight: np.ndarray) -> np.ndarray:
-    """Post-smooth in transition zones; zero in interior (w≈1) and on bare rock (w≈0)."""
-    return (4.0 * blend_weight * (1.0 - blend_weight)).astype(np.float32)
+def _surface_smooth_weight(
+    blend_weight: np.ndarray,
+    cfg: dict[str, float],
+) -> np.ndarray:
+    """Post-smooth in transitions and lightly in the interior when leveling is active."""
+    transition = 4.0 * blend_weight * (1.0 - blend_weight)
+    leveling = float(cfg.get("micro_suppression", 0.0))
+    interior = blend_weight * leveling * 0.35
+    return np.maximum(transition, interior).astype(np.float32)
 
 
 def _apply_surface_smoothing(

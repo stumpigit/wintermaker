@@ -5,13 +5,14 @@ snow_surface:
   accumulation_transition_deg: 20
   accumulation_edge_feather_m: 45
   # Macro/micro split: ridges & valleys follow macro terrain; metre-scale noise is flattened.
-  smoothing_sigma_m: 80
-  micro_suppression: 0.82
-  depression_fill: 0.92
-  ridge_micro_retention: 0.40
+  smoothing_sigma_m: 100
+  micro_suppression: 0.90
+  depression_fill: 0.95
+  ridge_micro_retention: 0.25
   tpi_smoothing_sigma_m: 70
-  thickness_smoothing_sigma_m: 35
-  surface_post_smooth_sigma_m: 10
+  thickness_smoothing_sigma_m: 45
+  surface_post_smooth_sigma_m: 20
+  surface_macro_smooth_sigma_m: 25
   accumulation_blend_sigma_m: 15
   valley_deposition_factor: 0.15
   ridge_scour_factor: 0.22
