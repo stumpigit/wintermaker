@@ -136,6 +136,36 @@ def test_multiscale_preserves_ridges_better_than_flat_blanket() -> None:
     )[0, 1]
 
 
+def test_snow_surface_never_below_dem() -> None:
+    width, height = 96, 96
+    dem = np.linspace(2000, 2040, width, dtype=np.float32)[None, :] + np.linspace(
+        0, 12, height, dtype=np.float32
+    )[:, None]
+    ridge = np.sin(np.linspace(0, 10 * np.pi, width, dtype=np.float32))[None, :] * 8.0
+    dem = dem + ridge
+    slope = np.zeros((height, width), dtype=np.float32)
+    tpi = np.zeros((height, width), dtype=np.float32)
+    aspect = np.zeros((height, width), dtype=np.float32)
+
+    cfg = resolve_snow_surface_config(
+        {
+            "snow_surface": {
+                "base_snow_height_m": 4.0,
+                "smoothing_sigma_m": 40,
+                "micro_suppression": 0.82,
+                "depression_fill": 0.92,
+                "ridge_micro_retention": 0.40,
+            }
+        }
+    )
+    result = compute_snow_surface_arrays(
+        dem, slope, tpi, aspect, cfg, resolution_m=0.5
+    )
+
+    assert (result["snow_thickness_m"] >= 0).all()
+    assert (result["snow_surface_dem"] >= dem).all()
+
+
 def test_peak_retention_zero_produces_smoother_surface_than_legacy() -> None:
     dem, slope, tpi, aspect = _flat_terrain(width=128, height=128)
     legacy = resolve_snow_surface_config({"snow_surface": {"peak_retention": 1.0}})

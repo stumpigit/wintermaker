@@ -91,6 +91,8 @@ def compute_snow_surface_arrays(
 
     snow_surface = (leveled + thickness).astype(np.float32)
     snow_surface = _apply_surface_smoothing(snow_surface, blend_weight, cfg, resolution_m)
+    # Micro-suppression can lower the leveled base below raw DEM peaks; snow still sits on terrain.
+    snow_surface = np.maximum(snow_surface, dem).astype(np.float32)
     snow_thickness = (snow_surface - dem).astype(np.float32)
 
     return {

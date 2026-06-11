@@ -95,6 +95,13 @@ def _build_mesh(
     indices: list[int] = []
     for gi in range(grid_h - 1):
         for gj in range(grid_w - 1):
+            if not (
+                valid[gi, gj]
+                and valid[gi, gj + 1]
+                and valid[gi + 1, gj]
+                and valid[gi + 1, gj + 1]
+            ):
+                continue
             i00 = gi * grid_w + gj
             i10 = gi * grid_w + (gj + 1)
             i01 = (gi + 1) * grid_w + gj
@@ -196,6 +203,7 @@ def _export_gpx_tracks(
     min_z: float,
     bounds: list[float] | None,
     lift_m: float = TRACK_LIFT_M,
+    snow_dem: np.ndarray | None = None,
 ) -> list[dict[str, Any]]:
     """Convert GPX tracks to viewer-local coordinates draped on the DEM."""
     if not gpx_paths:
@@ -210,6 +218,7 @@ def _export_gpx_tracks(
             continue
 
         local_positions: list[float] = []
+        snow_positions: list[float] | None = [] if snow_dem is not None else None
         for lon, lat, gpx_ele in wgs_points:
             easting, northing = to_lv95.transform(lon, lat)
             if bounds is not None:
@@ -222,13 +231,16 @@ def _export_gpx_tracks(
             if elevation is None:
                 continue
 
-            local_positions.extend(
-                [
-                    easting - center_x,
-                    elevation - min_z + lift_m,
-                    -(northing - center_y),
-                ],
-            )
+            local_x = easting - center_x
+            local_z = -(northing - center_y)
+            local_y = elevation - min_z + lift_m
+            local_positions.extend([local_x, local_y, local_z])
+
+            if snow_positions is not None:
+                snow_elevation = _sample_dem_elevation(snow_dem, transform, easting, northing)
+                if snow_elevation is None:
+                    snow_elevation = elevation
+                snow_positions.extend([local_x, snow_elevation - min_z + lift_m, local_z])
 
         if len(local_positions) < 6:
             continue
@@ -238,15 +250,16 @@ def _export_gpx_tracks(
         except ValueError:
             source = str(gpx_path)
 
-        tracks.append(
-            {
-                "name": name,
-                "source": source,
-                "point_count": len(local_positions) // 3,
-                "positions": local_positions,
-                "lift_m": lift_m,
-            },
-        )
+        track_entry: dict[str, Any] = {
+            "name": name,
+            "source": source,
+            "point_count": len(local_positions) // 3,
+            "positions": local_positions,
+            "lift_m": lift_m,
+        }
+        if snow_positions is not None and len(snow_positions) >= 6:
+            track_entry["snow_positions"] = snow_positions
+        tracks.append(track_entry)
 
     return tracks
 
@@ -401,6 +414,10 @@ def export_tile_viewer_data(
     resolved_gpx = [Path(p) for p in gpx_paths] if gpx_paths else []
     if not resolved_gpx and auto_gpx:
         resolved_gpx = _discover_gpx_files(root)
+    snow_dem_for_tracks = None
+    if paths.snow_surface_dem.exists():
+        with rasterio.open(paths.snow_surface_dem) as snow_src:
+            snow_dem_for_tracks = snow_src.read(1)
     tracks = _export_gpx_tracks(
         resolved_gpx,
         dem=dem,
@@ -409,6 +426,7 @@ def export_tile_viewer_data(
         center_y=center_y,
         min_z=min_z,
         bounds=bounds,
+        snow_dem=snow_dem_for_tracks,
     )
     if tracks:
         tracks_path = out / "tracks.json"

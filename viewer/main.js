@@ -283,10 +283,18 @@ function disposeTerrain() {
   heightModels = null;
 }
 
+function trackHeightsForModel(source) {
+  if (activeElevationModel === "snow_surface" && source.snowHeights) {
+    return source.snowHeights;
+  }
+  return source.heights;
+}
+
 function trackPointsFromSource(source, factor) {
+  const heights = trackHeightsForModel(source);
   const points = [];
-  for (let vi = 0; vi < source.heights.length; vi++) {
-    points.push(source.x[vi], source.heights[vi] * factor, source.z[vi]);
+  for (let vi = 0; vi < heights.length; vi++) {
+    points.push(source.x[vi], heights[vi] * factor, source.z[vi]);
   }
   return points;
 }
@@ -331,11 +339,20 @@ async function loadTracks(tileId) {
       x: new Float32Array(pointCount),
       heights: new Float32Array(pointCount),
       z: new Float32Array(pointCount),
+      snowHeights: null,
     };
     for (let vi = 0; vi < pointCount; vi++) {
       source.x[vi] = raw[vi * 3];
       source.heights[vi] = raw[vi * 3 + 1];
       source.z[vi] = raw[vi * 3 + 2];
+    }
+    if (track.snow_positions?.length >= 6) {
+      const snowRaw = track.snow_positions;
+      const snowCount = snowRaw.length / 3;
+      source.snowHeights = new Float32Array(snowCount);
+      for (let vi = 0; vi < snowCount; vi++) {
+        source.snowHeights[vi] = snowRaw[vi * 3 + 1];
+      }
     }
     trackSources.push(source);
 
@@ -401,6 +418,7 @@ function switchElevationModel(modelKey) {
   }
   activeElevationModel = modelKey;
   applyExaggeration(parseFloat(exaggerationInput.value));
+  updateTrackHeights(parseFloat(exaggerationInput.value));
   frameCamera(terrainMesh);
 }
 
