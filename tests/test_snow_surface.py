@@ -66,6 +66,47 @@ def test_ridge_gets_reduced_thickness() -> None:
     assert ridge < flat
 
 
+def test_slope_boundary_transitions_smoothly_without_steps() -> None:
+    width = 128
+    dem = np.full((width, width), 2000.0, dtype=np.float32)
+    slope = np.zeros((width, width), dtype=np.float32)
+    slope[:, width // 2 :] = 50.0
+    tpi = np.zeros((width, width), dtype=np.float32)
+    aspect = np.zeros((width, width), dtype=np.float32)
+
+    cfg = resolve_snow_surface_config(
+        {
+            "snow_surface": {
+                "base_snow_height_m": 4.0,
+                "max_accumulation_slope_deg": 35.0,
+                "accumulation_transition_deg": 10.0,
+                "accumulation_blend_sigma_m": 15.0,
+                "smoothing_sigma_m": 30.0,
+                "micro_suppression": 0.82,
+                "surface_post_smooth_sigma_m": 10.0,
+            }
+        }
+    )
+    result = compute_snow_surface_arrays(
+        dem, slope, tpi, aspect, cfg, resolution_m=1.0
+    )
+    snow = result["snow_surface_dem"]
+    thickness = result["snow_thickness_m"]
+
+    boundary_col = width // 2 - 1
+    flat = snow[:, boundary_col - 5]
+    steep = snow[:, boundary_col + 5]
+    transition = snow[:, boundary_col]
+
+    assert flat.mean() > steep.mean() + 1.0
+    assert transition.mean() > steep.mean()
+    assert transition.mean() < flat.mean()
+    assert (thickness >= 0).all()
+    assert (snow >= dem).all()
+    assert result["snow_thickness_m"][:, boundary_col + 8].mean() < 0.05
+    assert result["snow_thickness_m"][:, boundary_col - 8].mean() > 1.5
+
+
 def test_steep_slope_skips_accumulation_smoothing() -> None:
     dem = np.full((32, 32), 2000.0, dtype=np.float32)
     slope = np.zeros((32, 32), dtype=np.float32)
