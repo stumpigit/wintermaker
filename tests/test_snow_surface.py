@@ -220,6 +220,75 @@ def test_micro_suppression_does_not_create_holes_on_flat_accumulation() -> None:
     assert (thick < 0.2).sum() == 0
 
 
+def test_noisy_pixel_slope_does_not_punch_holes_when_blend_smoothing_enabled() -> None:
+    width, height = 128, 128
+    dem = np.full((height, width), 2000.0, dtype=np.float32)
+    dem += np.sin(np.linspace(0, 16 * np.pi, width, dtype=np.float32))[None, :] * 4.0
+    dem += np.random.default_rng(0).normal(0, 0.8, dem.shape).astype(np.float32)
+    dz_dy, dz_dx = np.gradient(dem, 2.0, 2.0)
+    slope = np.degrees(np.arctan(np.sqrt(dz_dx**2 + dz_dy**2))).astype(np.float32)
+    tpi = np.zeros((height, width), dtype=np.float32)
+    aspect = np.zeros((height, width), dtype=np.float32)
+
+    cfg = resolve_snow_surface_config(
+        {
+            "snow_surface": {
+                "base_snow_height_m": 2.0,
+                "max_accumulation_slope_deg": 35.0,
+                "accumulation_transition_deg": 20.0,
+                "accumulation_edge_feather_m": 45.0,
+                "accumulation_blend_sigma_m": 15.0,
+                "micro_suppression": 0.90,
+                "smoothing_sigma_m": 100.0,
+            }
+        }
+    )
+    thick = compute_snow_surface_arrays(
+        dem, slope, tpi, aspect, cfg, resolution_m=2.0
+    )["snow_thickness_m"]
+
+    assert (thick < 1.0).sum() == 0
+    assert thick.mean() > 1.9
+
+
+def test_base_snow_height_shifts_surface_on_noisy_terrain() -> None:
+    width, height = 96, 96
+    dem = np.full((height, width), 2000.0, dtype=np.float32)
+    dem += np.sin(np.linspace(0, 12 * np.pi, width, dtype=np.float32))[None, :] * 5.0
+    dem += np.random.default_rng(1).normal(0, 0.6, dem.shape).astype(np.float32)
+    dz_dy, dz_dx = np.gradient(dem, 2.0, 2.0)
+    slope = np.degrees(np.arctan(np.sqrt(dz_dx**2 + dz_dy**2))).astype(np.float32)
+    tpi = np.zeros((height, width), dtype=np.float32)
+    aspect = np.zeros((height, width), dtype=np.float32)
+
+    base_cfg = {
+        "max_accumulation_slope_deg": 35.0,
+        "accumulation_transition_deg": 20.0,
+        "accumulation_edge_feather_m": 45.0,
+        "accumulation_blend_sigma_m": 15.0,
+        "micro_suppression": 0.90,
+        "smoothing_sigma_m": 100.0,
+    }
+    low = compute_snow_surface_arrays(
+        dem,
+        slope,
+        tpi,
+        aspect,
+        resolve_snow_surface_config({"snow_surface": {**base_cfg, "base_snow_height_m": 2.0}}),
+        resolution_m=2.0,
+    )["snow_surface_dem"]
+    high = compute_snow_surface_arrays(
+        dem,
+        slope,
+        tpi,
+        aspect,
+        resolve_snow_surface_config({"snow_surface": {**base_cfg, "base_snow_height_m": 6.0}}),
+        resolution_m=2.0,
+    )["snow_surface_dem"]
+
+    assert np.isclose((high - low).mean(), 4.0, atol=0.05)
+
+
 def test_steep_slope_skips_accumulation_smoothing() -> None:
     dem = np.full((32, 32), 2000.0, dtype=np.float32)
     slope = np.zeros((32, 32), dtype=np.float32)

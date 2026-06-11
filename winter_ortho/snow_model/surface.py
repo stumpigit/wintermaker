@@ -56,7 +56,8 @@ def compute_snow_surface_arrays(
     base_height = cfg["base_snow_height_m"]
     max_slope = cfg["max_accumulation_slope_deg"]
 
-    blend_weight = _resolve_blend_weight(slope, cfg, resolution_m)
+    slope_work = _smooth_slope_for_weight(slope, cfg, resolution_m)
+    blend_weight = _resolve_blend_weight(slope, cfg, resolution_m, slope_work=slope_work)
     ground_reference = _ground_reference_surface(dem, cfg, resolution_m)
 
     tpi_work = tpi.astype(np.float64)
@@ -87,19 +88,31 @@ def compute_snow_surface_arrays(
         ).astype(np.float32)
 
     # Blanket on a leveled ground reference, tapered toward steep faces.
-    on_accumulation = slope < max_slope
+    on_accumulation = slope_work < max_slope
     snow_layer = (thickness * blend_weight).astype(np.float32)
     snow_surface = (ground_reference + snow_layer).astype(np.float32)
     smooth_weight = _surface_smooth_weight(blend_weight, cfg)
     snow_surface = _apply_surface_smoothing(snow_surface, smooth_weight, cfg, resolution_m)
-    snow_thickness = (snow_surface - dem).astype(np.float32)
-    edge_weight = _edge_feather_weight(slope, cfg, resolution_m)
+    edge_weight = _edge_feather_weight(
+        slope,
+        cfg,
+        resolution_m,
+        slope_work=slope_work,
+    )
     interior = on_accumulation & (edge_weight >= 0.98)
     min_thickness = np.where(interior, thickness, thickness * blend_weight).astype(np.float32)
-    snow_thickness = np.maximum(snow_thickness, min_thickness).astype(np.float32)
-    snow_surface = (dem + snow_thickness).astype(np.float32)
+    snow_thickness = (snow_surface - dem).astype(np.float32)
+    needs_boost = snow_thickness < min_thickness
+    snow_surface = np.where(
+        needs_boost,
+        dem + min_thickness,
+        snow_surface,
+    ).astype(np.float32)
+    snow_thickness = (snow_surface - dem).astype(np.float32)
+    snow_surface = np.maximum(snow_surface, dem).astype(np.float32)
+    snow_thickness = np.maximum(snow_thickness, 0.0).astype(np.float32)
 
-    accumulation = slope < max_slope
+    accumulation = on_accumulation
     return {
         "snow_surface_dem": snow_surface,
         "snow_thickness_m": snow_thickness,
@@ -130,6 +143,8 @@ def _edge_feather_weight(
     slope: np.ndarray,
     cfg: dict[str, float],
     resolution_m: float,
+    *,
+    slope_work: np.ndarray | None = None,
 ) -> np.ndarray:
     """Fade snow toward cliff edges by horizontal distance from steep terrain."""
     feather_m = float(cfg.get("accumulation_edge_feather_m", 25.0))
@@ -137,7 +152,8 @@ def _edge_feather_weight(
         return np.ones_like(slope, dtype=np.float32)
 
     max_slope = cfg["max_accumulation_slope_deg"]
-    steep = slope >= max_slope
+    steep_source = slope_work if slope_work is not None else slope
+    steep = steep_source >= max_slope
     if not np.any(steep):
         return np.ones_like(slope, dtype=np.float32)
     if np.all(steep):
@@ -167,32 +183,50 @@ def _resolve_slope_weight(
     slope: np.ndarray,
     cfg: dict[str, float],
     resolution_m: float,
+    *,
+    slope_work: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Snow weight with smoothed slope and a hard cap from raw slope (no steep bleed)."""
+    """Snow weight from smoothed slope; raw slope only caps when no blend smoothing is set."""
     max_slope = cfg["max_accumulation_slope_deg"]
     transition_deg = float(cfg.get("accumulation_transition_deg", 10.0))
-    slope_work = _smooth_slope_for_weight(slope, cfg, resolution_m)
+    if slope_work is None:
+        slope_work = _smooth_slope_for_weight(slope, cfg, resolution_m)
     weight = _slope_accumulation_weight(
         slope_work,
         max_slope=max_slope,
         transition_deg=transition_deg,
     )
-    weight_cap = _slope_accumulation_weight(
-        slope,
-        max_slope=max_slope,
-        transition_deg=transition_deg,
-    )
-    return np.minimum(weight, weight_cap).astype(np.float32)
+    blend_sigma_m = float(cfg.get("accumulation_blend_sigma_m", 0.0))
+    if blend_sigma_m <= 0.0:
+        weight_cap = _slope_accumulation_weight(
+            slope,
+            max_slope=max_slope,
+            transition_deg=transition_deg,
+        )
+        return np.minimum(weight, weight_cap).astype(np.float32)
+    return weight.astype(np.float32)
 
 
 def _resolve_blend_weight(
     slope: np.ndarray,
     cfg: dict[str, float],
     resolution_m: float,
+    *,
+    slope_work: np.ndarray | None = None,
 ) -> np.ndarray:
     """Combine slope taper and horizontal cliff feathering into one snow weight."""
-    slope_weight = _resolve_slope_weight(slope, cfg, resolution_m)
-    edge_weight = _edge_feather_weight(slope, cfg, resolution_m)
+    slope_weight = _resolve_slope_weight(
+        slope,
+        cfg,
+        resolution_m,
+        slope_work=slope_work,
+    )
+    edge_weight = _edge_feather_weight(
+        slope,
+        cfg,
+        resolution_m,
+        slope_work=slope_work,
+    )
     return (slope_weight * edge_weight).astype(np.float32)
 
 
