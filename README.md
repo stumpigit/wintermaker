@@ -148,6 +148,12 @@ Output: `data/raw/tlm3d/*.gpkg`
 
 ## Configuration
 
+Parameter reference (German):
+
+- [Roadmap](docs/roadmap.md) — project phases (Stage 1 MVP, extensions, Phase 8 ML)
+- [Region config](docs/regions.md) — `config/regions/*.yaml` (paths, tile grid, terrain, QA)
+- [Rendering profiles](docs/rendering_profiles.md) — `config/rendering_profiles/*.yaml` (snow model, class rules, visual style)
+
 For a new region, prefer `prepare-region` (above) — it generates `config/regions/{name}.yaml` and a matching rendering profile. For the built-in Davos example, edit `config/default.yaml` with your tile bounding box and source paths, then run:
 
 ```bash

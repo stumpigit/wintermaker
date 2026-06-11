@@ -76,6 +76,8 @@ rock:
   slope_visibility_threshold_deg: 38
   roughness_visibility_threshold: 0.52
   max_snow_fraction: 0.94
+  thickness_burial_radius_m: 22
+  thickness_burial_factor: 0.85
   min_rock_visibility: 0.18
   aspect_south_penalty: 0.08
   gentle_slope_max_deg: 32

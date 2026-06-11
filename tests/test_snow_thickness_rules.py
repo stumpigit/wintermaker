@@ -44,6 +44,63 @@ def thickness_profile() -> dict:
     }
 
 
+def test_rock_burial_uses_neighborhood_thickness(
+    monkeypatch: pytest.MonkeyPatch,
+    thickness_profile: dict,
+) -> None:
+    height, width = 32, 32
+    class_masks = {
+        "building_mask": np.zeros((height, width), dtype=np.uint8),
+        "road_mask": np.zeros((height, width), dtype=np.uint8),
+        "path_mask": np.zeros((height, width), dtype=np.uint8),
+        "water_mask": np.zeros((height, width), dtype=np.uint8),
+        "settlement_mask": np.zeros((height, width), dtype=np.uint8),
+        "forest_mask": np.zeros((height, width), dtype=np.uint8),
+        "rock_or_bare_ground_mask": np.ones((height, width), dtype=np.uint8),
+        "open_land_mask": np.zeros((height, width), dtype=np.uint8),
+        "special_area_mask": np.zeros((height, width), dtype=np.uint8),
+    }
+    terrain = {
+        "elevation": np.full((height, width), 1800.0, dtype=np.float32),
+        "aspect": np.zeros((height, width), dtype=np.float32),
+        "terrain_position_index": np.zeros((height, width), dtype=np.float32),
+        "hillshade_winter_low_sun": np.full((height, width), 0.6, dtype=np.float32),
+        "slope": np.full((height, width), 18.0, dtype=np.float32),
+        "roughness": np.full((height, width), 1.2, dtype=np.float32),
+    }
+    snow_thickness = np.full((height, width), 0.3, dtype=np.float32)
+    snow_thickness[10:22, 10:22] = 4.0
+    snow_thickness[16, 16] = 0.3
+    thickness_profile["rock"]["thickness_burial_radius_m"] = 3
+    thickness_profile["rock"]["thickness_burial_factor"] = 0.85
+
+    monkeypatch.setattr(snow_rules, "write_cog", lambda *args, **kwargs: None)
+    monkeypatch.setattr(snow_rules, "read_raster", lambda *args, **kwargs: (np.zeros((1, 1)), {}))
+    monkeypatch.setattr(
+        snow_rules,
+        "get_tile_grid",
+        lambda *args, **kwargs: SimpleNamespace(
+            transform=None, crs="EPSG:2056", width=width, height=height
+        ),
+    )
+
+    paths = _mock_paths()
+    layers = snow_rules.compute_snow_layers(
+        {"resolution_m": 1.0},
+        thickness_profile,
+        paths,
+        class_masks,
+        terrain,
+        snow_thickness=snow_thickness,
+    )
+
+    stone = layers["snow_fraction"][16, 16]
+    thin_field = layers["snow_fraction"][2, 2]
+    assert stone > 0.55
+    assert layers["rock_visibility"][16, 16] < layers["rock_visibility"][2, 2]
+    assert thin_field < stone
+
+
 def test_open_land_snow_fraction_follows_thickness(
     monkeypatch: pytest.MonkeyPatch,
     thickness_profile: dict,

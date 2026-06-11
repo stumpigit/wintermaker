@@ -54,10 +54,20 @@ def compute_snow_layers(
 
     use_thickness = snow_thickness is not None and "snow_surface" in profile
     thickness_fraction = None
+    burial_fraction = None
     if use_thickness:
         surface_cfg = resolve_snow_surface_config(profile)
         base_height = max(surface_cfg["base_snow_height_m"], 1e-3)
         thickness_fraction = np.clip(snow_thickness / base_height, 0.0, 1.0).astype(np.float32)
+        resolution_m = float(config.get("resolution_m", 2.0))
+        rock_cfg = profile.get("rock", {})
+        burial_radius_m = float(rock_cfg.get("thickness_burial_radius_m", 20.0))
+        burial_fraction = _local_burial_fraction(
+            snow_thickness,
+            base_height,
+            resolution_m=resolution_m,
+            radius_m=burial_radius_m,
+        )
 
     elev_mod = _elevation_modifier(terrain["elevation"], profile.get("elevation", {}))
     aspect_mod = _aspect_modifier(terrain["aspect"], profile.get("aspect", {}))
@@ -114,6 +124,7 @@ def compute_snow_layers(
         aspect_mod,
         profile,
         thickness_fraction=thickness_fraction,
+        burial_fraction=burial_fraction,
     ))
     apply_exclusive("open_land_mask", lambda m: _apply_open_land(
         m,
@@ -287,6 +298,7 @@ def _apply_rock(
     profile: dict[str, Any],
     *,
     thickness_fraction: np.ndarray | None = None,
+    burial_fraction: np.ndarray | None = None,
 ) -> None:
     rock_cfg = profile["rock"]
     gentle_max = float(rock_cfg.get("gentle_slope_max_deg", 28))
@@ -303,11 +315,20 @@ def _apply_rock(
     min_vis = rock_cfg["min_rock_visibility"] * slope_t + 0.05 * gentle_factor
     rock_vis = np.maximum(rock_vis, min_vis)
     rock_vis = rock_vis * (0.12 + 0.88 * slope_t)
+
+    snow_cover = burial_fraction if burial_fraction is not None else thickness_fraction
+    if snow_cover is not None:
+        burial_strength = float(rock_cfg.get("thickness_burial_factor", 0.82))
+        burial = np.clip(snow_cover * burial_strength * gentle_factor, 0.0, 1.0)
+        rock_vis = rock_vis * (1.0 - burial)
+        rock_vis = np.maximum(rock_vis, min_vis * (1.0 - 0.75 * burial))
+
     rock_visibility[mask] = rock_vis[mask]
 
     gentle_boost = float(rock_cfg.get("gentle_snow_boost", 0.22))
     if thickness_fraction is not None:
-        rock_base = thickness_fraction * rock_cfg["max_snow_fraction"]
+        cover = snow_cover if snow_cover is not None else thickness_fraction
+        rock_base = cover * rock_cfg["max_snow_fraction"]
         rock_snow = np.clip(
             rock_base
             - rock_vis * 0.20
@@ -347,6 +368,20 @@ def _apply_open_land(
         snow_fraction[mask] = np.clip(lo + (hi - lo) * 0.68 + elev_mod[mask] * 0.5, lo, hi)
     snow_brightness[mask] = open_cfg["snow_brightness"]
     snow_texture_strength[mask] = open_cfg["snow_texture_strength"]
+
+
+def _local_burial_fraction(
+    snow_thickness: np.ndarray,
+    base_height: float,
+    *,
+    resolution_m: float,
+    radius_m: float,
+) -> np.ndarray:
+    """Neighborhood snow depth for burying small protrusions (stones, micro-bumps)."""
+    radius_px = max(1, int(round(radius_m / resolution_m)))
+    size = radius_px * 2 + 1
+    local_thickness = ndimage.maximum_filter(snow_thickness, size=size)
+    return np.clip(local_thickness / base_height, 0.0, 1.0).astype(np.float32)
 
 
 def _normalize(array: np.ndarray) -> np.ndarray:
