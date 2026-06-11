@@ -55,7 +55,11 @@ def compute_snow_surface_arrays(
     base_height = cfg["base_snow_height_m"]
     max_slope = cfg["max_accumulation_slope_deg"]
 
-    blend_weight = _accumulation_blend_weight(slope, cfg, resolution_m)
+    slope_weight = _slope_accumulation_weight(
+        slope,
+        max_slope=max_slope,
+        transition_deg=float(cfg.get("accumulation_transition_deg", 10.0)),
+    )
     snow_base = _compute_snow_base(dem, cfg, resolution_m)
 
     tpi_work = tpi.astype(np.float64)
@@ -85,16 +89,19 @@ def compute_snow_surface_arrays(
             sigma=thickness_sigma_px,
         ).astype(np.float32)
 
-    snow_layer = np.maximum(snow_base + thickness, dem) - dem
+    snow_cap = np.maximum(snow_base + thickness, dem)
+    snow_layer = snow_cap - dem
     steep_factor = np.clip((slope - max_slope) / max(45.0 - max_slope, 1e-3), 0.0, 1.0)
     steep_retention = cfg["steep_slope_thickness_factor"]
     snow_layer *= 1.0 - steep_factor * (1.0 - steep_retention)
 
-    snow_surface = (dem + snow_layer * blend_weight).astype(np.float32)
-    smooth_weight = _spatial_slope_weight(slope, cfg, resolution_m, capped=False)
+    # Full snow on flat terrain; continuous taper toward bare rock on steep slopes.
+    snow_surface = (dem + snow_layer * slope_weight).astype(np.float32)
+    smooth_weight = _transition_smooth_weight(slope, cfg, resolution_m)
     snow_surface = _apply_surface_smoothing(snow_surface, smooth_weight, cfg, resolution_m)
-    snow_excess = np.maximum(snow_surface - dem, 0.0)
-    snow_surface = (dem + snow_excess * blend_weight).astype(np.float32)
+    # Post-smooth may bleed onto steep faces; slope cap removes it without thinning flat snow.
+    snow_surface = np.where(slope_weight <= 0.0, dem, snow_surface).astype(np.float32)
+    snow_surface = np.maximum(snow_surface, dem).astype(np.float32)
     snow_thickness = (snow_surface - dem).astype(np.float32)
 
     accumulation = slope < max_slope
@@ -150,14 +157,12 @@ def _compute_snow_base(
     return (macro + excess * peak_retention).astype(np.float32)
 
 
-def _spatial_slope_weight(
+def _transition_smooth_weight(
     slope: np.ndarray,
     cfg: dict[str, float],
     resolution_m: float,
-    *,
-    capped: bool,
 ) -> np.ndarray:
-    """Feather snow weight spatially; optional slope cap keeps steep faces bare."""
+    """Spatially extended weight for post-smooth in transition zones only."""
     max_slope = cfg["max_accumulation_slope_deg"]
     transition_deg = float(cfg.get("accumulation_transition_deg", 10.0))
     slope_weight = _slope_accumulation_weight(
@@ -175,18 +180,7 @@ def _spatial_slope_weight(
         slope_weight.astype(np.float64),
         sigma=blend_sigma_px,
     ).astype(np.float32)
-    if capped:
-        # Spatial blur may bleed weight onto steep pixels; slope cap prevents mini snow fields.
-        return np.minimum(feathered, slope_weight).astype(np.float32)
     return np.clip(feathered, 0.0, 1.0).astype(np.float32)
-
-
-def _accumulation_blend_weight(
-    slope: np.ndarray,
-    cfg: dict[str, float],
-    resolution_m: float,
-) -> np.ndarray:
-    return _spatial_slope_weight(slope, cfg, resolution_m, capped=True)
 
 
 def _apply_surface_smoothing(
