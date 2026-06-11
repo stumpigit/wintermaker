@@ -14,6 +14,7 @@ DEFAULT_SNOW_SURFACE_CONFIG: dict[str, float] = {
     "base_snow_height_m": 2.0,
     "max_accumulation_slope_deg": 30.0,
     "accumulation_transition_deg": 10.0,
+    "accumulation_edge_feather_m": 25.0,
     "smoothing_sigma_m": 20.0,
     "micro_suppression": 0.0,
     "depression_fill": 0.85,
@@ -56,6 +57,7 @@ def compute_snow_surface_arrays(
     max_slope = cfg["max_accumulation_slope_deg"]
 
     slope_weight = _resolve_slope_weight(slope, cfg, resolution_m)
+    edge_weight = _edge_feather_weight(slope, cfg, resolution_m)
     snow_base = _compute_snow_base(dem, cfg, resolution_m)
 
     tpi_work = tpi.astype(np.float64)
@@ -86,18 +88,19 @@ def compute_snow_surface_arrays(
         ).astype(np.float32)
 
     snow_cap = np.maximum(snow_base + thickness, dem)
-    snow_layer = snow_cap - dem
-    # Guarantee base snow depth wherever accumulation applies (micro-suppression can
-    # lower snow_base so far that snow_cap equals bare DEM on rocky outcrops).
-    snow_layer = np.maximum(snow_layer, thickness * slope_weight).astype(np.float32)
+    shaped_layer = snow_cap - dem
+    # Thin shaped relief near cliff edges (prevents a vertical snow wall / Schneegrat).
+    snow_layer = (thickness + (shaped_layer - thickness) * edge_weight).astype(np.float32)
+    blend_weight = (slope_weight * edge_weight).astype(np.float32)
+    # Guarantee base depth on interior accumulation (micro-suppression holes).
+    snow_layer = np.maximum(snow_layer, thickness * blend_weight).astype(np.float32)
 
-    # Full snow inside accumulation; taper only above max_accumulation_slope_deg.
     snow_surface = (dem + snow_layer * slope_weight).astype(np.float32)
     smooth_weight = _transition_smooth_weight(slope, cfg, resolution_m)
     snow_surface = _apply_surface_smoothing(snow_surface, smooth_weight, cfg, resolution_m)
     snow_thickness = (snow_surface - dem).astype(np.float32)
-    # Post-smooth can erode interior snow; re-apply minimum depth on full accumulation.
-    min_thickness = (thickness * slope_weight).astype(np.float32)
+    interior = (slope_weight >= 0.99) & (edge_weight >= 0.5)
+    min_thickness = np.where(interior, thickness, thickness * blend_weight).astype(np.float32)
     snow_thickness = np.maximum(snow_thickness, min_thickness).astype(np.float32)
     snow_surface = (dem + snow_thickness).astype(np.float32)
 
@@ -126,6 +129,23 @@ def _slope_accumulation_weight(
     lo = max_slope
     hi = max_slope + transition_deg
     return (1.0 - _smoothstep(lo, hi, slope.astype(np.float64))).astype(np.float32)
+
+
+def _edge_feather_weight(
+    slope: np.ndarray,
+    cfg: dict[str, float],
+    resolution_m: float,
+) -> np.ndarray:
+    """Fade snow toward cliff edges by horizontal distance from steep terrain."""
+    feather_m = float(cfg.get("accumulation_edge_feather_m", 25.0))
+    if feather_m <= 0.0:
+        return np.ones_like(slope, dtype=np.float32)
+
+    max_slope = cfg["max_accumulation_slope_deg"]
+    steep = slope >= max_slope
+    dist_px = ndimage.distance_transform_edt(~steep)
+    dist_m = dist_px.astype(np.float64) * resolution_m
+    return _smoothstep(0.0, feather_m, dist_m)
 
 
 def _smooth_slope_for_weight(

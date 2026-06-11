@@ -2,7 +2,8 @@ profile: demo_test
 snow_surface:  
   base_snow_height_m: 7.0
   max_accumulation_slope_deg: 35
-  accumulation_transition_deg: 12
+  accumulation_transition_deg: 15
+  accumulation_edge_feather_m: 30
   # Macro/micro split: ridges & valleys follow macro terrain; metre-scale noise is flattened.
   smoothing_sigma_m: 80
   micro_suppression: 0.82
