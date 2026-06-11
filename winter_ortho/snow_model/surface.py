@@ -120,7 +120,7 @@ def _slope_accumulation_weight(
 ) -> np.ndarray:
     """Per-pixel snow weight from slope alone (1 = full accumulation, 0 = bare steep)."""
     lo = max_slope - transition_deg
-    return _smoothstep(lo, max_slope, max_slope - slope.astype(np.float64))
+    return (1.0 - _smoothstep(lo, max_slope, slope.astype(np.float64))).astype(np.float32)
 
 
 def _compute_snow_base(
