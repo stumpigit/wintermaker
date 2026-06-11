@@ -95,8 +95,11 @@ def compute_snow_surface_arrays(
     snow_surface = (dem + snow_layer * slope_weight).astype(np.float32)
     smooth_weight = _transition_smooth_weight(slope, cfg, resolution_m)
     snow_surface = _apply_surface_smoothing(snow_surface, smooth_weight, cfg, resolution_m)
-    snow_surface = np.maximum(snow_surface, dem).astype(np.float32)
     snow_thickness = (snow_surface - dem).astype(np.float32)
+    # Post-smooth can erode interior snow; re-apply minimum depth on full accumulation.
+    min_thickness = (thickness * slope_weight).astype(np.float32)
+    snow_thickness = np.maximum(snow_thickness, min_thickness).astype(np.float32)
+    snow_surface = (dem + snow_thickness).astype(np.float32)
 
     accumulation = slope < max_slope
     return {
@@ -195,8 +198,10 @@ def _transition_smooth_weight(
     cfg: dict[str, float],
     resolution_m: float,
 ) -> np.ndarray:
-    """Weight mask for post-smooth, active in the transition band above max_slope."""
-    return _resolve_slope_weight(slope, cfg, resolution_m)
+    """Post-smooth only in the slope transition band (not on full accumulation)."""
+    slope_weight = _resolve_slope_weight(slope, cfg, resolution_m)
+    # Peaks at w≈0.5, zero at w=0 and w=1 — protects interior snow from smooth bleed.
+    return (4.0 * slope_weight * (1.0 - slope_weight)).astype(np.float32)
 
 
 def _apply_surface_smoothing(
