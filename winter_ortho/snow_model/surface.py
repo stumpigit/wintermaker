@@ -56,7 +56,7 @@ def compute_snow_surface_arrays(
     base_height = cfg["base_snow_height_m"]
     max_slope = cfg["max_accumulation_slope_deg"]
 
-    slope_weight = _resolve_slope_weight(slope, cfg, resolution_m)
+    blend_weight = _resolve_blend_weight(slope, cfg, resolution_m)
 
     tpi_work = tpi.astype(np.float64)
     tpi_sigma_m = float(cfg.get("tpi_smoothing_sigma_m", 0.0))
@@ -85,19 +85,17 @@ def compute_snow_surface_arrays(
             sigma=thickness_sigma_px,
         ).astype(np.float32)
 
-    # Uniform blanket: modulated thickness on flat ground, tapered on steep faces.
+    # Uniform blanket, tapered by slope and horizontal distance to steep faces.
     on_accumulation = slope < max_slope
-    snow_layer = (thickness * slope_weight).astype(np.float32)
+    snow_layer = (thickness * blend_weight).astype(np.float32)
 
     snow_surface = (dem + snow_layer).astype(np.float32)
-    smooth_weight = _transition_smooth_weight(slope, cfg, resolution_m)
+    smooth_weight = _transition_smooth_weight(blend_weight)
     snow_surface = _apply_surface_smoothing(snow_surface, smooth_weight, cfg, resolution_m)
     snow_thickness = (snow_surface - dem).astype(np.float32)
-    min_thickness = np.where(
-        on_accumulation,
-        thickness,
-        thickness * slope_weight,
-    ).astype(np.float32)
+    edge_weight = _edge_feather_weight(slope, cfg, resolution_m)
+    interior = on_accumulation & (edge_weight >= 0.98)
+    min_thickness = np.where(interior, thickness, thickness * blend_weight).astype(np.float32)
     snow_thickness = np.maximum(snow_thickness, min_thickness).astype(np.float32)
     snow_surface = (dem + snow_thickness).astype(np.float32)
 
@@ -140,6 +138,10 @@ def _edge_feather_weight(
 
     max_slope = cfg["max_accumulation_slope_deg"]
     steep = slope >= max_slope
+    if not np.any(steep):
+        return np.ones_like(slope, dtype=np.float32)
+    if np.all(steep):
+        return np.zeros_like(slope, dtype=np.float32)
     dist_px = ndimage.distance_transform_edt(~steep)
     dist_m = dist_px.astype(np.float64) * resolution_m
     return _smoothstep(0.0, feather_m, dist_m)
@@ -183,6 +185,17 @@ def _resolve_slope_weight(
     return np.minimum(weight, weight_cap).astype(np.float32)
 
 
+def _resolve_blend_weight(
+    slope: np.ndarray,
+    cfg: dict[str, float],
+    resolution_m: float,
+) -> np.ndarray:
+    """Combine slope taper and horizontal cliff feathering into one snow weight."""
+    slope_weight = _resolve_slope_weight(slope, cfg, resolution_m)
+    edge_weight = _edge_feather_weight(slope, cfg, resolution_m)
+    return (slope_weight * edge_weight).astype(np.float32)
+
+
 def _compute_snow_base(
     dem: np.ndarray,
     cfg: dict[str, float],
@@ -210,15 +223,9 @@ def _compute_snow_base(
     return (macro + excess * peak_retention).astype(np.float32)
 
 
-def _transition_smooth_weight(
-    slope: np.ndarray,
-    cfg: dict[str, float],
-    resolution_m: float,
-) -> np.ndarray:
-    """Post-smooth only in the slope transition band (not on full accumulation)."""
-    slope_weight = _resolve_slope_weight(slope, cfg, resolution_m)
-    # Peaks at w≈0.5, zero at w=0 and w=1 — protects interior snow from smooth bleed.
-    return (4.0 * slope_weight * (1.0 - slope_weight)).astype(np.float32)
+def _transition_smooth_weight(blend_weight: np.ndarray) -> np.ndarray:
+    """Post-smooth in transition zones; zero in interior (w≈1) and on bare rock (w≈0)."""
+    return (4.0 * blend_weight * (1.0 - blend_weight)).astype(np.float32)
 
 
 def _apply_surface_smoothing(

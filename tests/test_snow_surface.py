@@ -103,6 +103,36 @@ def test_slope_boundary_transitions_smoothly_without_steps() -> None:
     assert result["snow_thickness_m"][:, 10].mean() > 3.0
 
 
+def test_cliff_edge_tapers_snow_before_steep_wall() -> None:
+    width = 96
+    dem = np.full((width, width), 2000.0, dtype=np.float32)
+    slope = np.full((width, width), 15.0, dtype=np.float32)
+    slope[:, width // 2 :] = 55.0
+    tpi = np.zeros((width, width), dtype=np.float32)
+    aspect = np.zeros((width, width), dtype=np.float32)
+
+    cfg = resolve_snow_surface_config(
+        {
+            "snow_surface": {
+                "base_snow_height_m": 2.0,
+                "max_accumulation_slope_deg": 35.0,
+                "accumulation_transition_deg": 20.0,
+                "accumulation_edge_feather_m": 40.0,
+            }
+        }
+    )
+    thick = compute_snow_surface_arrays(
+        dem, slope, tpi, aspect, cfg, resolution_m=1.0
+    )["snow_thickness_m"]
+
+    interior = thick[:, 10].mean()
+    cliff = thick[:, width // 2 - 5].mean()
+    steep = thick[:, width // 2 + 5].mean()
+    assert interior > cliff > steep
+    assert interior >= 1.9
+    assert steep < 0.1
+
+
 def test_edge_feather_preserves_interior_blanket() -> None:
     width = 96
     dem = np.full((width, width), 2000.0, dtype=np.float32)
@@ -149,12 +179,10 @@ def test_shaped_layer_below_thickness_does_not_create_depressions() -> None:
     cfg = resolve_snow_surface_config(
         {
             "snow_surface": {
-                "base_snow_height_m": 7.0,
+                "base_snow_height_m": 2.0,
                 "max_accumulation_slope_deg": 35.0,
                 "accumulation_edge_feather_m": 30.0,
                 "accumulation_blend_sigma_m": 15.0,
-                "smoothing_sigma_m": 40.0,
-                "micro_suppression": 0.82,
             }
         }
     )
@@ -162,8 +190,8 @@ def test_shaped_layer_below_thickness_does_not_create_depressions() -> None:
         dem, slope, tpi, aspect, cfg, resolution_m=0.5
     )
     thick = result["snow_thickness_m"]
-    assert (thick < 3.0).sum() == 0
-    assert (thick >= 6.5).mean() > 0.9
+    assert (thick < 1.0).sum() == 0
+    assert (thick >= 1.9).mean() > 0.9
 
 
 def test_micro_suppression_does_not_create_holes_on_flat_accumulation() -> None:
@@ -177,11 +205,9 @@ def test_micro_suppression_does_not_create_holes_on_flat_accumulation() -> None:
     cfg = resolve_snow_surface_config(
         {
             "snow_surface": {
-                "base_snow_height_m": 7.0,
+                "base_snow_height_m": 2.0,
                 "max_accumulation_slope_deg": 35.0,
                 "accumulation_transition_deg": 12.0,
-                "smoothing_sigma_m": 40.0,
-                "micro_suppression": 0.82,
                 "accumulation_blend_sigma_m": 10.0,
             }
         }
@@ -190,8 +216,8 @@ def test_micro_suppression_does_not_create_holes_on_flat_accumulation() -> None:
         dem, slope, tpi, aspect, cfg, resolution_m=0.5
     )
     thick = result["snow_thickness_m"]
-    assert (thick >= 6.0).mean() > 0.95
-    assert (thick < 0.5).sum() == 0
+    assert (thick >= 1.9).mean() > 0.95
+    assert (thick < 0.2).sum() == 0
 
 
 def test_steep_slope_skips_accumulation_smoothing() -> None:
