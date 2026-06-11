@@ -89,18 +89,27 @@ def compute_snow_surface_arrays(
 
     snow_cap = np.maximum(snow_base + thickness, dem)
     shaped_layer = snow_cap - dem
-    # Thin shaped relief near cliff edges (prevents a vertical snow wall / Schneegrat).
-    snow_layer = (thickness + (shaped_layer - thickness) * edge_weight).astype(np.float32)
-    blend_weight = (slope_weight * edge_weight).astype(np.float32)
-    # Guarantee base depth on interior accumulation (micro-suppression holes).
-    snow_layer = np.maximum(snow_layer, thickness * blend_weight).astype(np.float32)
+    # Only taper relief above the uniform blanket toward cliff edges — never pull below thickness.
+    shape_excess = np.maximum(shaped_layer - thickness, 0.0).astype(np.float32)
+    snow_layer = (
+        thickness * slope_weight + shape_excess * edge_weight * slope_weight
+    ).astype(np.float32)
+    on_accumulation = slope < max_slope
+    snow_layer = np.where(
+        on_accumulation,
+        np.maximum(snow_layer, thickness * slope_weight),
+        snow_layer,
+    ).astype(np.float32)
 
-    snow_surface = (dem + snow_layer * slope_weight).astype(np.float32)
+    snow_surface = (dem + snow_layer).astype(np.float32)
     smooth_weight = _transition_smooth_weight(slope, cfg, resolution_m)
     snow_surface = _apply_surface_smoothing(snow_surface, smooth_weight, cfg, resolution_m)
     snow_thickness = (snow_surface - dem).astype(np.float32)
-    interior = (slope_weight >= 0.99) & (edge_weight >= 0.5)
-    min_thickness = np.where(interior, thickness, thickness * blend_weight).astype(np.float32)
+    min_thickness = np.where(
+        on_accumulation,
+        thickness * slope_weight,
+        thickness * slope_weight * edge_weight,
+    ).astype(np.float32)
     snow_thickness = np.maximum(snow_thickness, min_thickness).astype(np.float32)
     snow_surface = (dem + snow_thickness).astype(np.float32)
 

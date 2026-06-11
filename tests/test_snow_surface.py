@@ -103,10 +103,10 @@ def test_slope_boundary_transitions_smoothly_without_steps() -> None:
     assert result["snow_thickness_m"][:, 10].mean() > 3.0
 
 
-def test_edge_feather_reduces_snow_ridge_near_cliff() -> None:
+def test_edge_feather_preserves_interior_blanket() -> None:
     width = 96
     dem = np.full((width, width), 2000.0, dtype=np.float32)
-    dem[:, : width // 2] += np.linspace(0, 5, width // 2, dtype=np.float32)[None, :]
+    dem += np.sin(np.linspace(0, 10 * np.pi, width, dtype=np.float32))[None, :] * 6.0
     slope = np.full((width, width), 20.0, dtype=np.float32)
     slope[:, width // 2 :] = 48.0
     tpi = np.zeros((width, width), dtype=np.float32)
@@ -116,9 +116,9 @@ def test_edge_feather_reduces_snow_ridge_near_cliff() -> None:
         "base_snow_height_m": 7.0,
         "max_accumulation_slope_deg": 35.0,
         "accumulation_transition_deg": 12.0,
+        "accumulation_blend_sigma_m": 10.0,
         "smoothing_sigma_m": 30.0,
         "micro_suppression": 0.82,
-        "valley_deposition_factor": 0.3,
     }
     with_feather = resolve_snow_surface_config(
         {"snow_surface": {**base_cfg, "accumulation_edge_feather_m": 30.0}}
@@ -133,8 +133,37 @@ def test_edge_feather_reduces_snow_ridge_near_cliff() -> None:
         dem, slope, tpi, aspect, without_feather, resolution_m=1.0
     )["snow_thickness_m"]
 
-    cliff_col = width // 2 - 3
-    assert thick_feather[:, cliff_col].mean() < thick_plain[:, cliff_col].mean()
+    interior_col = 10
+    assert thick_feather[:, interior_col].mean() >= 6.5
+    assert np.isclose(thick_feather[:, interior_col].mean(), thick_plain[:, interior_col].mean())
+
+
+def test_shaped_layer_below_thickness_does_not_create_depressions() -> None:
+    width, height = 64, 64
+    dem = np.full((height, width), 2000.0, dtype=np.float32)
+    dem += np.sin(np.linspace(0, 12 * np.pi, width, dtype=np.float32))[None, :] * 10.0
+    slope = np.full((height, width), 12.0, dtype=np.float32)
+    tpi = np.zeros((height, width), dtype=np.float32)
+    aspect = np.zeros((height, width), dtype=np.float32)
+
+    cfg = resolve_snow_surface_config(
+        {
+            "snow_surface": {
+                "base_snow_height_m": 7.0,
+                "max_accumulation_slope_deg": 35.0,
+                "accumulation_edge_feather_m": 30.0,
+                "accumulation_blend_sigma_m": 15.0,
+                "smoothing_sigma_m": 40.0,
+                "micro_suppression": 0.82,
+            }
+        }
+    )
+    result = compute_snow_surface_arrays(
+        dem, slope, tpi, aspect, cfg, resolution_m=0.5
+    )
+    thick = result["snow_thickness_m"]
+    assert (thick < 3.0).sum() == 0
+    assert (thick >= 6.5).mean() > 0.9
 
 
 def test_micro_suppression_does_not_create_holes_on_flat_accumulation() -> None:
