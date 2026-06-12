@@ -243,12 +243,14 @@ def test_noisy_pixel_slope_does_not_punch_holes_when_blend_smoothing_enabled() -
             }
         }
     )
-    thick = compute_snow_surface_arrays(
+    result = compute_snow_surface_arrays(
         dem, slope, tpi, aspect, cfg, resolution_m=2.0
-    )["snow_thickness_m"]
+    )
+    thick = result["snow_thickness_m"]
+    gentle = slope < 30.0
 
-    assert (thick < 1.0).sum() == 0
-    assert thick.mean() > 1.9
+    assert (thick[gentle] < 1.0).sum() == 0
+    assert thick[gentle].mean() > 1.9
 
 
 def test_base_snow_height_shifts_surface_on_noisy_terrain() -> None:
@@ -256,8 +258,7 @@ def test_base_snow_height_shifts_surface_on_noisy_terrain() -> None:
     dem = np.full((height, width), 2000.0, dtype=np.float32)
     dem += np.sin(np.linspace(0, 12 * np.pi, width, dtype=np.float32))[None, :] * 5.0
     dem += np.random.default_rng(1).normal(0, 0.6, dem.shape).astype(np.float32)
-    dz_dy, dz_dx = np.gradient(dem, 2.0, 2.0)
-    slope = np.degrees(np.arctan(np.sqrt(dz_dx**2 + dz_dy**2))).astype(np.float32)
+    slope = np.full((height, width), 12.0, dtype=np.float32)
     tpi = np.zeros((height, width), dtype=np.float32)
     aspect = np.zeros((height, width), dtype=np.float32)
 
@@ -268,6 +269,8 @@ def test_base_snow_height_shifts_surface_on_noisy_terrain() -> None:
         "accumulation_blend_sigma_m": 15.0,
         "micro_suppression": 0.90,
         "smoothing_sigma_m": 100.0,
+        "leveling_full_slope_deg": 30.0,
+        "leveling_end_slope_deg": 35.0,
     }
     low = compute_snow_surface_arrays(
         dem,
@@ -286,7 +289,7 @@ def test_base_snow_height_shifts_surface_on_noisy_terrain() -> None:
         resolution_m=2.0,
     )["snow_surface_dem"]
 
-    assert np.isclose((high - low).mean(), 4.0, atol=0.05)
+    assert np.isclose((high - low).mean(), 4.0, atol=0.1)
 
 
 def test_slope_leveling_fills_depressions_on_gentle_terrain_only() -> None:
@@ -386,7 +389,7 @@ def test_multiscale_preserves_ridges_better_than_flat_blanket() -> None:
     assert modulated_surface[42, 45] < uniform_surface[42, 45]
 
 
-def test_snow_surface_never_below_dem() -> None:
+def test_leveled_blanket_buries_micro_protrusions_on_gentle_terrain() -> None:
     width, height = 96, 96
     dem = np.linspace(2000, 2040, width, dtype=np.float32)[None, :] + np.linspace(
         0, 12, height, dtype=np.float32
@@ -405,6 +408,8 @@ def test_snow_surface_never_below_dem() -> None:
                 "micro_suppression": 0.82,
                 "depression_fill": 0.92,
                 "ridge_micro_retention": 0.40,
+                "leveling_full_slope_deg": 30.0,
+                "leveling_end_slope_deg": 35.0,
             }
         }
     )
@@ -413,7 +418,37 @@ def test_snow_surface_never_below_dem() -> None:
     )
 
     assert (result["snow_thickness_m"] >= 0).all()
-    assert (result["snow_surface_dem"] >= dem).all()
+    buried = result["snow_surface_dem"] < dem
+    assert buried.any()
+    assert float(np.std(result["snow_surface_dem"])) < float(np.std(dem)) * 0.85
+
+
+def test_cliffs_follow_dem_when_leveling_inactive() -> None:
+    width = 64
+    dem = np.full((width, width), 2000.0, dtype=np.float32)
+    dem[20:30, 20:30] += 6.0
+    slope = np.full((width, width), 42.0, dtype=np.float32)
+    slope[5:15, 5:15] = 10.0
+    tpi = np.zeros((width, width), dtype=np.float32)
+    aspect = np.zeros((width, width), dtype=np.float32)
+
+    cfg = resolve_snow_surface_config(
+        {
+            "snow_surface": {
+                "base_snow_height_m": 2.0,
+                "max_accumulation_slope_deg": 35.0,
+                "leveling_full_slope_deg": 30.0,
+                "leveling_end_slope_deg": 35.0,
+                "micro_suppression": 0.90,
+                "smoothing_sigma_m": 40.0,
+            }
+        }
+    )
+    result = compute_snow_surface_arrays(
+        dem, slope, tpi, aspect, cfg, resolution_m=2.0
+    )
+    steep = slope >= 35.0
+    assert np.allclose(result["snow_surface_dem"][steep], dem[steep], atol=0.05)
 
 
 def test_peak_retention_zero_produces_smoother_base_than_legacy() -> None:

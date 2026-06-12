@@ -30,6 +30,7 @@ DEFAULT_SNOW_SURFACE_CONFIG: dict[str, float] = {
     "windward_aspect_penalty": 0.15,
     "leveling_full_slope_deg": 30.0,
     "leveling_end_slope_deg": 0.0,
+    "cover_transition_sigma_m": 0.0,
 }
 
 
@@ -106,24 +107,19 @@ def compute_snow_surface_arrays(
         resolution_m,
         leveling_weight=leveling_weight,
     )
-    edge_weight = _edge_feather_weight(
-        slope,
-        cfg,
-        resolution_m,
-        slope_work=slope_work,
-    )
-    interior = on_accumulation & (edge_weight >= 0.98)
-    min_thickness = np.where(interior, thickness, thickness * blend_weight).astype(np.float32)
-    snow_thickness = (snow_surface - dem).astype(np.float32)
-    needs_boost = snow_thickness < min_thickness
-    snow_surface = np.where(
-        needs_boost,
-        dem + min_thickness,
-        snow_surface,
+    leveled_blanket = snow_surface.astype(np.float32)
+    cover = (blend_weight * leveling_weight).astype(np.float32)
+    cover = _smooth_cover_weight(cover, cfg, resolution_m)
+    snow_surface = (
+        leveled_blanket * cover + dem.astype(np.float32) * (1.0 - cover)
     ).astype(np.float32)
-    snow_thickness = (snow_surface - dem).astype(np.float32)
-    snow_surface = np.maximum(snow_surface, dem).astype(np.float32)
-    snow_thickness = np.maximum(snow_thickness, 0.0).astype(np.float32)
+    snow_thickness = _finalize_snow_thickness(
+        dem,
+        snow_surface,
+        leveled_blanket,
+        thickness,
+        cover,
+    )
 
     accumulation = on_accumulation
     return {
@@ -131,6 +127,40 @@ def compute_snow_surface_arrays(
         "snow_thickness_m": snow_thickness,
         "accumulation_mask": accumulation.astype(np.uint8),
     }
+
+
+def _smooth_cover_weight(
+    cover: np.ndarray,
+    cfg: dict[str, float],
+    resolution_m: float,
+) -> np.ndarray:
+    """Spatially soften snow↔rock transitions (single blended ramp, no step bands)."""
+    sigma_m = float(cfg.get("cover_transition_sigma_m", 0.0))
+    if sigma_m <= 0.0:
+        return cover.astype(np.float32)
+    sigma_px = max(1.0, sigma_m / resolution_m)
+    smoothed = ndimage.gaussian_filter(cover.astype(np.float64), sigma=sigma_px).astype(
+        np.float32
+    )
+    return np.clip(smoothed, 0.0, 1.0).astype(np.float32)
+
+
+def _finalize_snow_thickness(
+    dem: np.ndarray,
+    snow_surface: np.ndarray,
+    leveled_blanket: np.ndarray,
+    thickness: np.ndarray,
+    cover: np.ndarray,
+) -> np.ndarray:
+    """Thickness for layers/QA; leveled terrain keeps nominal depth even when rock is buried."""
+    geometric = np.maximum(snow_surface - dem, 0.0).astype(np.float32)
+    nominal = (thickness * cover).astype(np.float32)
+    on_blanket = cover > 0.5
+    return np.where(
+        on_blanket,
+        np.maximum(nominal, geometric),
+        geometric,
+    ).astype(np.float32)
 
 
 def _slope_leveling_weight(
