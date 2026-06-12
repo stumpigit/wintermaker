@@ -263,7 +263,15 @@ Offenes Gelände (Wiesen, Weiden, alpine Matten).
 |---|---|
 | **Typ** | `[min, max]` (0–1) |
 | **Standard** | `[0.97, 1.0]` |
-| **Wirkung** | Ziel-Schneefraktion. Mit Schneedicke: interpoliert zwischen min und max nach `thickness_fraction`; ohne: Höhenmodifikator + fester Anteil. Auf Steilhängen und bei Gelände über der Schneedecke kann die Fraktion **unter min** fallen (siehe unten). |
+| **Wirkung** | Ziel-Schneefraktion. Mit Schneedicke: interpoliert zwischen min und max nach absoluter Schneehöhe (siehe `full_snow_thickness_m`); ohne: Höhenmodifikator + fester Anteil. Auf Steilhängen und bei Gelände über der Schneedecke kann die Fraktion **unter min** fallen — nur wenn die Schneedecke unter `full_snow_thickness_m` liegt. |
+
+### `full_snow_thickness_m`
+
+| | |
+|---|---|
+| **Typ** | Meter |
+| **Standard** | `0.5` |
+| **Wirkung** | Ab dieser absoluten Schneehöhe gilt volle Schneedecke (`snow_fraction` max) auf offenem Land. Steilhang- und Vorsprungs-Penalties (Sommergrün) sind dann aus. Darunter: Interpolation zwischen min/max und aktive Penalties. |
 
 ### `slope_snow_strength`
 
@@ -271,7 +279,7 @@ Offenes Gelände (Wiesen, Weiden, alpine Matten).
 |---|---|
 | **Typ** | Zahl (0–1) |
 | **Standard** | `1.0` |
-| **Wirkung** | Master-Regler für Hangreduktion. `0` schaltet Steilhang-Logik vollständig aus. Wirkt nur, wo `thickness_fraction` niedrig ist — volle Schneedecke bleibt auch auf Steilhängen weiss. |
+| **Wirkung** | Master-Regler für Hangreduktion. `0` schaltet Steilhang-Logik vollständig aus. Wirkt nur unter `full_snow_thickness_m` — ab dieser Dicke bleibt auch Steilhang weiss. |
 
 ### `slope_snow_start_deg`, `slope_snow_end_deg`, `slope_min_snow_scale`
 
@@ -279,7 +287,7 @@ Offenes Gelände (Wiesen, Weiden, alpine Matten).
 |---|---|
 | **Typ** | Grad / Grad / Zahl (0–1) |
 | **Standard** | `28` / `40` / `0.05` |
-| **Wirkung** | Reduziert Schnee auf offenem Gelände mit zunehmender Hangneigung, gegated mit `(1 - thickness_fraction)`. Steile Flanken ohne Schneedecke werden freigelegt; mit voller Decke bleibt Schnee erhalten. |
+| **Wirkung** | Reduziert Schnee auf offenem Gelände mit zunehmender Hangneigung, gegated unter `full_snow_thickness_m`. Steile Flanken ohne Schneedecke werden freigelegt; ab voller Dicke bleibt Schnee erhalten. |
 
 ### `slope_texture_visibility`
 
@@ -295,7 +303,7 @@ Offenes Gelände (Wiesen, Weiden, alpine Matten).
 |---|---|
 | **Typ** | Meter / Zahl (0–1) / Zahl (0–1) / Zahl (0–1) |
 | **Standard** | `0.6` / `1.0` / `0.9` / `0.85` |
-| **Wirkung** | Wo das Sommer-DEM über `snow_surface_dem` ragt (Geröllfelder, Felsinseln): Schnee wird reduziert und Sommertextur eingeblendet. `protrusion_full_m` = Höhendifferenz für vollen Effekt. `protrusion_strength: 0` schaltet ab. |
+| **Wirkung** | Wo das Sommer-DEM über `snow_surface_dem` ragt (Geröllfelder, Felsinseln): Schnee wird reduziert und Sommertextur eingeblendet — nur unter `full_snow_thickness_m`. `protrusion_full_m` = Höhendifferenz für vollen Effekt. `protrusion_strength: 0` schaltet ab. |
 
 ### `snow_brightness`
 

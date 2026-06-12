@@ -33,7 +33,8 @@ aspect:
 
 open_land:
   snow_fraction: [0.88, 0.96]
-  # Steilhang: nur wo Schneedecke dünn (thickness_fraction niedrig). 0 = aus.
+  full_snow_thickness_m: 0.5
+  # Steilhang / Vorsprünge nur unter full_snow_thickness_m (Sommergrün). 0 = aus.
   slope_snow_strength: 0.75
   slope_snow_start_deg: 32
   slope_snow_end_deg: 44

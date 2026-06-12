@@ -150,6 +150,7 @@ def compute_snow_layers(
         elev_mod,
         profile,
         thickness_fraction=thickness_fraction,
+        snow_thickness_m=snow_thickness,
         slope_snow_scale=slope_snow_scale,
         protrusion_fraction=protrusion_fraction,
     ))
@@ -379,12 +380,20 @@ def _apply_open_land(
     profile: dict[str, Any],
     *,
     thickness_fraction: np.ndarray | None = None,
+    snow_thickness_m: np.ndarray | None = None,
     slope_snow_scale: np.ndarray | None = None,
     protrusion_fraction: np.ndarray | None = None,
 ) -> None:
     open_cfg = profile["open_land"]
     lo, hi = open_cfg["snow_fraction"]
-    if thickness_fraction is not None:
+    full_m = max(float(open_cfg.get("full_snow_thickness_m", 0.5)), 1e-3)
+    if snow_thickness_m is not None:
+        depth = snow_thickness_m[mask]
+        depth_frac = np.clip(depth / full_m, 0.0, 1.0)
+        thick_enough = depth >= full_m
+        cover = np.where(thick_enough, hi, lo + (hi - lo) * depth_frac).astype(np.float32)
+        thin_gate = np.where(thick_enough, 0.0, 1.0 - depth_frac).astype(np.float32)
+    elif thickness_fraction is not None:
         cover = lo + (hi - lo) * thickness_fraction[mask]
         thin_gate = 1.0 - thickness_fraction[mask]
     else:
@@ -399,7 +408,9 @@ def _apply_open_land(
     if protrusion_fraction is not None:
         prot_red = float(open_cfg.get("protrusion_snow_reduction", 0.9))
         prot_strength = float(open_cfg.get("protrusion_strength", 1.0))
-        cover = cover * (1.0 - protrusion_fraction[mask] * prot_red * prot_strength)
+        cover = cover * (
+            1.0 - protrusion_fraction[mask] * prot_red * prot_strength * thin_gate
+        )
 
     snow_fraction[mask] = np.clip(cover, 0.0, hi)
     snow_brightness[mask] = open_cfg["snow_brightness"]
@@ -418,7 +429,7 @@ def _apply_open_land(
         prot_strength = float(open_cfg.get("protrusion_strength", 1.0))
         exposure_vals = np.maximum(
             exposure_vals,
-            protrusion_fraction[mask] * prot_vis * prot_strength,
+            protrusion_fraction[mask] * prot_vis * prot_strength * thin_gate,
         )
     summer_exposure[mask] = np.maximum(summer_exposure[mask], exposure_vals)
 
