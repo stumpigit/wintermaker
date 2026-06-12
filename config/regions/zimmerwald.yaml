@@ -1,8 +1,6 @@
 crs: EPSG:2056
-tile_size_m: 512
 resolution_m: 1
 paths:
-  raw_root: data/raw
   intermediate_root: data/intermediate/tiles
   output_root: data/output/tiles
   orthophoto: data/raw/regions/zimmerwald/orthophoto/summer_rgb.tif
@@ -15,7 +13,6 @@ paths:
     forest: data/raw/regions/zimmerwald/tlm3d/forest.gpkg
     settlement: data/raw/regions/zimmerwald/tlm3d/settlement.gpkg
     landcover: data/raw/regions/zimmerwald/tlm3d/landcover.gpkg
-  winter_reference: data/raw/reference/winter_rgb.tif
 tiles:
   zimmerwald_001:
     bbox:
@@ -26,7 +23,6 @@ tiles:
 harmonize:
   orthophoto_resampling: bilinear
   dem_resampling: bilinear
-  mask_resampling: nearest
 terrain:
   generalized_hillshade_sigma_m: 55
   hillshade:
@@ -34,7 +30,6 @@ terrain:
     altitude: 32
   tpi_radius_px: 5
   roughness_radius_px: 3
-  flow_iterations: 3
 qa:
   building_edge_tolerance: 0.35
   road_brightness_min: 0.25

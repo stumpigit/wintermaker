@@ -28,7 +28,6 @@ DEFAULT_SNOW_SURFACE_CONFIG: dict[str, float] = {
     "valley_deposition_factor": 0.30,
     "ridge_scour_factor": 0.50,
     "windward_aspect_penalty": 0.15,
-    "steep_slope_thickness_factor": 0.35,
 }
 
 

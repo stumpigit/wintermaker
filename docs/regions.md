@@ -10,7 +10,7 @@ Beispiel: `config/regions/demo_test.yaml`
 
 | Abschnitt | Pipeline-Schritt | Zweck |
 |-----------|------------------|-------|
-| Top-Level (`crs`, `tile_size_m`, `resolution_m`) | harmonize, terrain, snow, render | Raster-Grid und Auflösung |
+| Top-Level (`crs`, `resolution_m`) | harmonize, terrain, snow, render | Raster-Grid und Auflösung |
 | `paths` | harmonize, masks | Eingabedaten |
 | `tiles` | alle | Bounding Box pro Kachel |
 | `harmonize` | harmonize | Resampling beim Ausrichten |
@@ -30,15 +30,6 @@ Beispiel: `config/regions/demo_test.yaml`
 | **Bereich** | Jedes von Rasterio unterstützte CRS; für Schweizer Daten LV95 (`EPSG:2056`) |
 | **Wirkung** | Koordinatensystem für alle ausgerichteten Raster und Vektoren. Bounding Boxes in `tiles` müssen in diesem CRS angegeben sein. |
 
-### `tile_size_m`
-
-| | |
-|---|---|
-| **Typ** | Zahl (Meter) |
-| **Standard** | `512` |
-| **Bereich** | > 0; typisch 256–4096 |
-| **Wirkung** | Referenzgrösse für Kacheln in der Projektstruktur. Die tatsächliche Kachelgrösse ergibt sich aus `tiles.{id}.bbox` und `resolution_m`. |
-
 ### `resolution_m`
 
 | | |
@@ -54,13 +45,13 @@ Beispiel: `config/regions/demo_test.yaml`
 
 Pfade zu Rohdaten und Ausgabeverzeichnissen. Relativ zum Projektroot oder absolut.
 
-### `raw_root`, `intermediate_root`, `output_root`
+### `intermediate_root`, `output_root`
 
 | | |
 |---|---|
 | **Typ** | String (Verzeichnispfad) |
-| **Standard** | `data/raw`, `data/intermediate/tiles`, `data/output/tiles` |
-| **Wirkung** | `raw_root`: Eingangsdaten. `intermediate_root`: Zwischenprodukte pro `{tile_id}`. `output_root`: finales Winter-Orthophoto und QA. |
+| **Standard** | `data/intermediate/tiles`, `data/output/tiles` |
+| **Wirkung** | `intermediate_root`: Zwischenprodukte pro `{tile_id}`. `output_root`: finales Winter-Orthophoto und QA. Eingabedaten (`orthophoto`, `dem`, `tlm3d`) werden über ihre eigenen Pfade referenziert. |
 
 ### `orthophoto`, `dem`
 
@@ -76,13 +67,6 @@ Pfade zu Rohdaten und Ausgabeverzeichnissen. Relativ zum Projektroot oder absolu
 | **Typ** | String (GeoPackage-Pfad) pro Layer |
 | **Layer** | `buildings`, `roads`, `paths`, `water`, `forest`, `settlement`, `landcover` |
 | **Wirkung** | swissTLM3D-Vektordaten für Maskenerzeugung (`masks`). Jeder Layer wird auf das Raster-Grid rasterisiert. |
-
-### `winter_reference`
-
-| | |
-|---|---|
-| **Typ** | String (GeoTIFF-Pfad) |
-| **Wirkung** | Optionales Referenz-Winterbild für visuelle Metriken (nicht für die Regel-Pipeline zwingend). |
 
 ---
 
@@ -113,14 +97,6 @@ Steuert das Ausrichten von Orthophoto und DEM auf das gemeinsame Tile-Grid (`har
 | **Standard** | `"bilinear"` |
 | **Mögliche Werte** | `nearest`, `bilinear`, `cubic`, `cubic_spline`, `lanczos`, `average`, `mode`, `max`, `min`, `med`, `q1`, `q3`, `sum`, `rms` (Rasterio) |
 | **Wirkung** | Interpolationsmethode beim Reprojizieren/Resampling. `bilinear` ist ein guter Kompromiss für RGB und DEM. `nearest` für kategorische Daten. |
-
-### `mask_resampling`
-
-| | |
-|---|---|
-| **Typ** | String |
-| **Standard** | `"nearest"` |
-| **Wirkung** | In der Config vorgesehen für Masken-Resampling. Aktuell noch nicht im Code verdrahtet — Masken werden direkt beim Rasterisieren erzeugt. |
 
 ---
 
@@ -172,15 +148,6 @@ Parameter für Terrain-Features (`terrain`-Schritt) und für Hillshade im Render
 | **Standard** | `3` |
 | **Bereich** | ≥ 1; typisch 2–8 |
 | **Wirkung** | Radius für lokale Höhen-Standardabweichung (Rauheit). Höhere Werte glätten die Rauheit über grössere Nachbarschaft. Wird für Fels-Sichtbarkeit (`rock.slope_visibility_threshold_deg`, `roughness_visibility_threshold`) genutzt. |
-
-### `flow_iterations`
-
-| | |
-|---|---|
-| **Typ** | Integer |
-| **Standard** | `3` |
-| **Bereich** | 1–10 (intern gekappt) |
-| **Wirkung** | Iterationen für einen Fluss-Akkumulations-Proxy aus Hangneigung. Mehr Iterationen → stärker geglättetes Drainage-Muster. Wird als Terrain-Band gespeichert, aktuell nicht direkt im Snow/Render-Modell verwendet. |
 
 ---
 
