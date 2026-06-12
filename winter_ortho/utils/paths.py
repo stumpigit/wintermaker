@@ -78,6 +78,10 @@ class TilePaths:
         return self.intermediate_dir / "snow_thickness_m.tif"
 
     @property
+    def blanket_thickness_m(self) -> Path:
+        return self.intermediate_dir / "blanket_thickness_m.tif"
+
+    @property
     def accumulation_mask(self) -> Path:
         return self.intermediate_dir / "accumulation_mask.tif"
 

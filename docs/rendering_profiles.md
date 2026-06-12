@@ -271,7 +271,7 @@ Offenes Gelände (Wiesen, Weiden, alpine Matten).
 |---|---|
 | **Typ** | Meter |
 | **Standard** | `0.5` |
-| **Wirkung** | Ab dieser absoluten Schneehöhe gilt volle Schneedecke (`snow_fraction` max) auf offenem Land. Steilhang- und Vorsprungs-Penalties (Sommergrün) sind dann aus. Darunter: Interpolation zwischen min/max und aktive Penalties. |
+| **Wirkung** | Ab dieser absoluten Schneehöhe gilt volle Schneedecke (`snow_fraction` max) auf offenem Land. Steilhang- und Vorsprungs-Penalties (Sommergrün) sind dann aus. In Akkumulationszonen zählt die nominale Blanket-Dicke (`blanket_thickness_m`), nicht die geometrische Höhe über dem Sommer-DEM — damit verdeckt eine 0,8-m-Decke auch eingeebnete Felsvorsprünge. Darunter: Interpolation zwischen min/max und aktive Penalties. |
 
 ### `slope_snow_strength`
 

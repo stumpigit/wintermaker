@@ -32,6 +32,8 @@ def compute_snow_layers(
     terrain: dict[str, np.ndarray],
     *,
     snow_thickness: np.ndarray | None = None,
+    blanket_thickness: np.ndarray | None = None,
+    accumulation_mask: np.ndarray | None = None,
     snow_surface_dem: np.ndarray | None = None,
     progress: PipelineProgress | None = None,
 ) -> dict[str, np.ndarray]:
@@ -151,6 +153,8 @@ def compute_snow_layers(
         profile,
         thickness_fraction=thickness_fraction,
         snow_thickness_m=snow_thickness,
+        blanket_thickness_m=blanket_thickness,
+        accumulation_mask=accumulation_mask,
         slope_snow_scale=slope_snow_scale,
         protrusion_fraction=protrusion_fraction,
     ))
@@ -381,14 +385,22 @@ def _apply_open_land(
     *,
     thickness_fraction: np.ndarray | None = None,
     snow_thickness_m: np.ndarray | None = None,
+    blanket_thickness_m: np.ndarray | None = None,
+    accumulation_mask: np.ndarray | None = None,
     slope_snow_scale: np.ndarray | None = None,
     protrusion_fraction: np.ndarray | None = None,
 ) -> None:
     open_cfg = profile["open_land"]
     lo, hi = open_cfg["snow_fraction"]
     full_m = max(float(open_cfg.get("full_snow_thickness_m", 0.5)), 1e-3)
-    if snow_thickness_m is not None:
-        depth = snow_thickness_m[mask]
+    depth_source = _open_land_depth_for_gating(
+        mask,
+        snow_thickness_m=snow_thickness_m,
+        blanket_thickness_m=blanket_thickness_m,
+        accumulation_mask=accumulation_mask,
+    )
+    if depth_source is not None:
+        depth = depth_source
         depth_frac = np.clip(depth / full_m, 0.0, 1.0)
         thick_enough = depth >= full_m
         cover = np.where(thick_enough, hi, lo + (hi - lo) * depth_frac).astype(np.float32)
@@ -432,6 +444,29 @@ def _apply_open_land(
             protrusion_fraction[mask] * prot_vis * prot_strength * thin_gate,
         )
     summer_exposure[mask] = np.maximum(summer_exposure[mask], exposure_vals)
+
+
+def _open_land_depth_for_gating(
+    mask: np.ndarray,
+    *,
+    snow_thickness_m: np.ndarray | None,
+    blanket_thickness_m: np.ndarray | None,
+    accumulation_mask: np.ndarray | None,
+) -> np.ndarray | None:
+    """Nominal blanket depth in accumulation zones; geometric depth on steep faces."""
+    if blanket_thickness_m is not None and accumulation_mask is not None:
+        on_accum = accumulation_mask[mask] > 0
+        geometric = (
+            snow_thickness_m[mask]
+            if snow_thickness_m is not None
+            else np.zeros(int(mask.sum()), dtype=np.float32)
+        )
+        return np.where(on_accum, blanket_thickness_m[mask], geometric).astype(np.float32)
+    if blanket_thickness_m is not None:
+        return blanket_thickness_m[mask]
+    if snow_thickness_m is not None:
+        return snow_thickness_m[mask]
+    return None
 
 
 def _open_land_slope_snow_scale(slope: np.ndarray, open_cfg: dict[str, Any]) -> np.ndarray:

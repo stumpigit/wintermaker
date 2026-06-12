@@ -59,7 +59,7 @@ def _load_snow_surface(paths) -> dict[str, Any] | None:
     if not paths.snow_thickness_m.exists():
         return None
     layers: dict[str, np.ndarray] = {}
-    for name in ("snow_surface_dem", "snow_thickness_m", "accumulation_mask"):
+    for name in ("snow_surface_dem", "snow_thickness_m", "blanket_thickness_m", "accumulation_mask"):
         data, _ = read_raster(str(getattr(paths, name)))
         layers[name] = data[0] if data.ndim == 3 else data
     return layers
@@ -209,6 +209,8 @@ def run_snow(
         class_masks,
         terrain,
         snow_thickness=snow_surface.get("snow_thickness_m"),
+        blanket_thickness=snow_surface.get("blanket_thickness_m"),
+        accumulation_mask=snow_surface.get("accumulation_mask"),
         snow_surface_dem=snow_surface.get("snow_surface_dem"),
         progress=progress,
     )

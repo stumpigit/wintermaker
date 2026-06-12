@@ -32,7 +32,7 @@ aspect:
   north_boost: 0.12
 
 open_land:
-  snow_fraction: [0.88, 0.96]
+  snow_fraction: [0.96, 1.0]
   full_snow_thickness_m: 0.5
   # Steilhang / Vorsprünge nur unter full_snow_thickness_m (Sommergrün). 0 = aus.
   slope_snow_strength: 0.75
@@ -187,7 +187,7 @@ rendering:
       open_land_mask:
         lum_lo: 0.84
         lum_hi: 0.98
-        strength: 0.20
+        strength: 0.0
       forest_mask:
         lum_lo: 0.34
         lum_hi: 0.68

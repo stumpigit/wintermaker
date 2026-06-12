@@ -130,6 +130,7 @@ def compute_snow_surface_arrays(
     return {
         "snow_surface_dem": snow_surface,
         "snow_thickness_m": snow_thickness,
+        "blanket_thickness_m": thickness.astype(np.float32),
         "accumulation_mask": accumulation.astype(np.uint8),
     }
 
@@ -415,7 +416,7 @@ def compute_snow_surface(
     if progress:
         progress.substep("Writing snow_surface_dem.tif and snow_thickness_m.tif")
 
-    for name in ("snow_surface_dem", "snow_thickness_m"):
+    for name in ("snow_surface_dem", "snow_thickness_m", "blanket_thickness_m"):
         write_cog(
             str(getattr(paths, name)),
             arrays[name],
