@@ -289,6 +289,43 @@ def test_base_snow_height_shifts_surface_on_noisy_terrain() -> None:
     assert np.isclose((high - low).mean(), 4.0, atol=0.05)
 
 
+def test_slope_leveling_fills_depressions_on_gentle_terrain_only() -> None:
+    width = 128
+    grid_x = np.linspace(0, 14 * np.pi, width, dtype=np.float32)
+    grid_y = np.linspace(0, 14 * np.pi, width, dtype=np.float32)
+    dem = np.full((width, width), 2000.0, dtype=np.float32)
+    dem += np.sin(grid_x)[None, :] * np.sin(grid_y)[:, None] * 5.0
+    slope = np.full((width, width), 12.0, dtype=np.float32)
+    slope[:, width // 2 :] = 42.0
+    tpi = np.zeros((width, width), dtype=np.float32)
+    aspect = np.zeros((width, width), dtype=np.float32)
+
+    cfg = resolve_snow_surface_config(
+        {
+            "snow_surface": {
+                "base_snow_height_m": 2.0,
+                "max_accumulation_slope_deg": 35.0,
+                "leveling_full_slope_deg": 30.0,
+                "leveling_end_slope_deg": 35.0,
+                "accumulation_blend_sigma_m": 10.0,
+                "smoothing_sigma_m": 40.0,
+                "micro_suppression": 0.90,
+                "depression_fill": 0.95,
+            }
+        }
+    )
+    result = compute_snow_surface_arrays(
+        dem, slope, tpi, aspect, cfg, resolution_m=2.0
+    )
+    gentle_mask = slope < 30.0
+    steep_mask = slope >= 35.0
+    gentle_ratio = float(np.ptp(result["snow_surface_dem"][gentle_mask]) / np.ptp(dem[gentle_mask]))
+    steep_ratio = float(np.ptp(result["snow_surface_dem"][steep_mask]) / np.ptp(dem[steep_mask]))
+
+    assert gentle_ratio < 0.85
+    assert steep_ratio > gentle_ratio + 0.15
+
+
 def test_steep_slope_skips_accumulation_smoothing() -> None:
     dem = np.full((32, 32), 2000.0, dtype=np.float32)
     slope = np.zeros((32, 32), dtype=np.float32)

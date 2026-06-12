@@ -4,7 +4,9 @@ snow_surface:
   max_accumulation_slope_deg: 35
   accumulation_transition_deg: 20
   accumulation_edge_feather_m: 45
-  # Macro/micro split: ridges & valleys follow macro terrain; metre-scale noise is flattened.
+  # Slope-dependent DEM leveling: fill small depressions on gentle slopes, raw DEM on cliffs.
+  leveling_full_slope_deg: 30
+  leveling_end_slope_deg: 35
   smoothing_sigma_m: 100
   micro_suppression: 0.90
   depression_fill: 0.95

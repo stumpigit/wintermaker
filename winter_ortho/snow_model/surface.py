@@ -28,6 +28,8 @@ DEFAULT_SNOW_SURFACE_CONFIG: dict[str, float] = {
     "valley_deposition_factor": 0.30,
     "ridge_scour_factor": 0.50,
     "windward_aspect_penalty": 0.15,
+    "leveling_full_slope_deg": 30.0,
+    "leveling_end_slope_deg": 0.0,
 }
 
 
@@ -56,8 +58,14 @@ def compute_snow_surface_arrays(
     max_slope = cfg["max_accumulation_slope_deg"]
 
     slope_work = _smooth_slope_for_weight(slope, cfg, resolution_m)
+    leveling_weight = _slope_leveling_weight(slope_work, cfg)
     blend_weight = _resolve_blend_weight(slope, cfg, resolution_m, slope_work=slope_work)
-    ground_reference = _ground_reference_surface(dem, cfg, resolution_m)
+    ground_reference = _ground_reference_surface(
+        dem,
+        cfg,
+        resolution_m,
+        leveling_weight=leveling_weight,
+    )
 
     tpi_work = tpi.astype(np.float64)
     tpi_sigma_m = float(cfg.get("tpi_smoothing_sigma_m", 0.0))
@@ -67,10 +75,10 @@ def compute_snow_surface_arrays(
     tpi_norm = _normalize_tpi(tpi_work.astype(np.float32))
     thickness = np.full(dem.shape, base_height, dtype=np.float32)
 
-    valley_factor = np.clip(-tpi_norm, 0.0, 1.0)
+    valley_factor = np.clip(-tpi_norm, 0.0, 1.0) * leveling_weight
     thickness *= 1.0 + cfg["valley_deposition_factor"] * valley_factor
 
-    ridge_factor = np.clip(tpi_norm, 0.0, 1.0)
+    ridge_factor = np.clip(tpi_norm, 0.0, 1.0) * leveling_weight
     thickness *= 1.0 - cfg["ridge_scour_factor"] * ridge_factor
 
     windward = np.clip(np.cos(np.radians(aspect - 202.5)), 0.0, 1.0)
@@ -90,8 +98,14 @@ def compute_snow_surface_arrays(
     on_accumulation = slope_work < max_slope
     snow_layer = (thickness * blend_weight).astype(np.float32)
     snow_surface = (ground_reference + snow_layer).astype(np.float32)
-    smooth_weight = _surface_smooth_weight(blend_weight, cfg)
-    snow_surface = _apply_surface_smoothing(snow_surface, smooth_weight, cfg, resolution_m)
+    smooth_weight = _surface_smooth_weight(blend_weight, cfg, leveling_weight)
+    snow_surface = _apply_surface_smoothing(
+        snow_surface,
+        smooth_weight,
+        cfg,
+        resolution_m,
+        leveling_weight=leveling_weight,
+    )
     edge_weight = _edge_feather_weight(
         slope,
         cfg,
@@ -117,6 +131,20 @@ def compute_snow_surface_arrays(
         "snow_thickness_m": snow_thickness,
         "accumulation_mask": accumulation.astype(np.uint8),
     }
+
+
+def _slope_leveling_weight(
+    slope_work: np.ndarray,
+    cfg: dict[str, float],
+) -> np.ndarray:
+    """Per-pixel DEM leveling: 1 on gentle slopes, 0 on steep (fade between thresholds)."""
+    full_deg = float(cfg.get("leveling_full_slope_deg", 30.0))
+    end_deg = float(cfg.get("leveling_end_slope_deg", 0.0))
+    if end_deg <= 0.0:
+        end_deg = cfg["max_accumulation_slope_deg"]
+    if end_deg <= full_deg:
+        end_deg = full_deg + 1e-3
+    return (1.0 - _smoothstep(full_deg, end_deg, slope_work.astype(np.float64))).astype(np.float32)
 
 
 def _smoothstep(edge0: float, edge1: float, x: np.ndarray) -> np.ndarray:
@@ -233,13 +261,18 @@ def _ground_reference_surface(
     dem: np.ndarray,
     cfg: dict[str, float],
     resolution_m: float,
+    *,
+    leveling_weight: np.ndarray,
 ) -> np.ndarray:
-    """Blend raw DEM with macro-smoothed snow base; strength from micro_suppression."""
-    leveling = float(cfg.get("micro_suppression", 0.0))
-    if leveling <= 0.0:
+    """Blend raw DEM with leveled snow base; strength from micro_suppression × slope."""
+    micro = float(cfg.get("micro_suppression", 0.0))
+    if micro <= 0.0:
+        return dem.astype(np.float32)
+    strength = (leveling_weight * micro).astype(np.float32)
+    if not np.any(strength > 1e-6):
         return dem.astype(np.float32)
     snow_base = _compute_snow_base(dem, cfg, resolution_m)
-    return (dem * (1.0 - leveling) + snow_base * leveling).astype(np.float32)
+    return (dem * (1.0 - strength) + snow_base * strength).astype(np.float32)
 
 
 def _compute_snow_base(
@@ -272,20 +305,24 @@ def _compute_snow_base(
 def _surface_smooth_weight(
     blend_weight: np.ndarray,
     cfg: dict[str, float],
+    leveling_weight: np.ndarray,
 ) -> np.ndarray:
     """Post-smooth in transitions and lightly in the interior when leveling is active."""
     transition = 4.0 * blend_weight * (1.0 - blend_weight)
-    leveling = float(cfg.get("micro_suppression", 0.0))
-    interior = blend_weight * leveling * 0.35
+    micro = float(cfg.get("micro_suppression", 0.0))
+    interior = blend_weight * leveling_weight * micro * 0.35
     return np.maximum(transition, interior).astype(np.float32)
 
 
 def _apply_surface_smoothing(
     snow_surface: np.ndarray,
-    blend_weight: np.ndarray,
+    smooth_weight: np.ndarray,
     cfg: dict[str, float],
     resolution_m: float,
+    *,
+    leveling_weight: np.ndarray,
 ) -> np.ndarray:
+    blend = np.clip(smooth_weight, 0.0, 1.0).astype(np.float32)
     post_sigma_m = float(cfg.get("surface_post_smooth_sigma_m", 0.0))
     if post_sigma_m > 0.0:
         post_sigma_px = max(1.0, post_sigma_m / resolution_m)
@@ -294,7 +331,7 @@ def _apply_surface_smoothing(
             sigma=post_sigma_px,
         ).astype(np.float32)
         snow_surface = (
-            snow_surface * (1.0 - blend_weight) + snow_smooth * blend_weight
+            snow_surface * (1.0 - blend) + snow_smooth * blend
         ).astype(np.float32)
 
     macro_sigma_m = float(cfg.get("surface_macro_smooth_sigma_m", 0.0))
@@ -304,8 +341,9 @@ def _apply_surface_smoothing(
             snow_surface.astype(np.float64),
             sigma=macro_sigma_px,
         ).astype(np.float32)
+        macro_blend = (blend * leveling_weight).astype(np.float32)
         snow_surface = (
-            snow_surface * (1.0 - blend_weight) + snow_macro * blend_weight
+            snow_surface * (1.0 - macro_blend) + snow_macro * macro_blend
         ).astype(np.float32)
 
     return snow_surface.astype(np.float32)
