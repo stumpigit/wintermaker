@@ -28,6 +28,8 @@ PIPELINE_STEPS = [
     ("qa", "Qualitätskontrolle", "Geometrie- und Plausibilitätschecks"),
 ]
 
+PIPELINE_STEPS_SNOW = PIPELINE_STEPS[3:]
+
 
 def _load_class_masks(paths) -> dict[str, Any]:
     names = [
@@ -256,27 +258,19 @@ def run_qa_step(
     )
 
 
-def run_all(
-    tile_id: str,
-    profile_name: str = "davos",
-    config_path: str | None = None,
+def _run_pipeline_steps(
     *,
-    progress: PipelineProgress | None = None,
+    tile_id: str,
+    profile_name: str,
+    config_path: str | None,
+    steps: list[tuple[str, str, str]],
+    step_fns: list,
+    progress: PipelineProgress | None,
 ) -> dict[str, Any]:
-    total = len(PIPELINE_STEPS)
+    total = len(steps)
     results: dict[str, Any] = {"tile_id": tile_id, "profile": profile_name}
 
-    step_fns = [
-        lambda: run_harmonize(tile_id, config_path, progress=progress),
-        lambda: run_masks(tile_id, config_path, progress=progress),
-        lambda: run_terrain(tile_id, config_path, progress=progress),
-        lambda: run_snow_surface(tile_id, profile_name, config_path, progress=progress),
-        lambda: run_snow(tile_id, profile_name, config_path, progress=progress),
-        lambda: run_render(tile_id, profile_name, config_path, progress=progress),
-        lambda: run_qa_step(tile_id, config_path, progress=progress),
-    ]
-
-    for idx, ((key, title, detail), fn) in enumerate(zip(PIPELINE_STEPS, step_fns), start=1):
+    for idx, ((key, title, detail), fn) in enumerate(zip(steps, step_fns), start=1):
         if progress:
             progress.advance(title)
             progress.step_begin(idx, total, title, detail)
@@ -287,6 +281,53 @@ def run_all(
             progress.step_end(title, summary)
 
     return results
+
+
+def run_all(
+    tile_id: str,
+    profile_name: str = "davos",
+    config_path: str | None = None,
+    *,
+    progress: PipelineProgress | None = None,
+) -> dict[str, Any]:
+    return _run_pipeline_steps(
+        tile_id=tile_id,
+        profile_name=profile_name,
+        config_path=config_path,
+        steps=PIPELINE_STEPS,
+        step_fns=[
+            lambda: run_harmonize(tile_id, config_path, progress=progress),
+            lambda: run_masks(tile_id, config_path, progress=progress),
+            lambda: run_terrain(tile_id, config_path, progress=progress),
+            lambda: run_snow_surface(tile_id, profile_name, config_path, progress=progress),
+            lambda: run_snow(tile_id, profile_name, config_path, progress=progress),
+            lambda: run_render(tile_id, profile_name, config_path, progress=progress),
+            lambda: run_qa_step(tile_id, config_path, progress=progress),
+        ],
+        progress=progress,
+    )
+
+
+def run_all_snow(
+    tile_id: str,
+    profile_name: str = "davos",
+    config_path: str | None = None,
+    *,
+    progress: PipelineProgress | None = None,
+) -> dict[str, Any]:
+    return _run_pipeline_steps(
+        tile_id=tile_id,
+        profile_name=profile_name,
+        config_path=config_path,
+        steps=PIPELINE_STEPS_SNOW,
+        step_fns=[
+            lambda: run_snow_surface(tile_id, profile_name, config_path, progress=progress),
+            lambda: run_snow(tile_id, profile_name, config_path, progress=progress),
+            lambda: run_render(tile_id, profile_name, config_path, progress=progress),
+            lambda: run_qa_step(tile_id, config_path, progress=progress),
+        ],
+        progress=progress,
+    )
 
 
 def _step_summary(step_key: str, result: dict[str, Any]) -> str:

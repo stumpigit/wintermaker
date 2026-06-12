@@ -160,6 +160,12 @@ For a new region, prefer `prepare-region` (above) — it generates `config/regio
 winter-ortho run-all --tile-id davos_001 --profile davos
 ```
 
+`run-all` and `run-all-snow` finish with a high-quality viewer export (`--stride 2 --max-texture-dim 16384`). Use `run-all-snow` when harmonize/masks/terrain are already done and you only need to regenerate from snow-surface onwards:
+
+```bash
+winter-ortho run-all-snow --tile-id davos_001 --profile davos
+```
+
 Individual steps:
 
 ```bash
@@ -181,7 +187,7 @@ Exported assets are written to `viewer/data/{tile_id}/` (gitignored). Mesh geome
 # Export mesh + textures only
 winter-ortho viewer-export --tile-id demo_test_001 --config config/regions/demo_test.yaml
 
-# Export and start the viewer (opens http://127.0.0.1:8765)
+# Export and start the viewer (binds 0.0.0.0:8765, opens http://127.0.0.1:8765 locally)
 # Reuses an existing export; does not overwrite quality settings from viewer-export.
 winter-ortho viewer --tile-id demo_test_001 --config config/regions/demo_test.yaml
 ```

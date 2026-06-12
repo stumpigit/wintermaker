@@ -23,9 +23,43 @@ from winter_ortho.viewer.export import export_tile_viewer_data
 app = typer.Typer(help="Winter orthophoto generation pipeline")
 console = Console()
 
+VIEWER_EXPORT_STRIDE = 2
+VIEWER_EXPORT_MAX_TEXTURE_DIM = 16384
+
 
 def _progress(quiet: bool) -> PipelineProgress:
     return PipelineProgress(console=console, verbose=not quiet)
+
+
+def _export_viewer_after_pipeline(
+    tile_id: str,
+    config: Path | None,
+    *,
+    quiet: bool,
+) -> dict:
+    progress = _progress(quiet)
+    if not quiet:
+        progress.info(
+            "Viewer-Export "
+            f"(stride={VIEWER_EXPORT_STRIDE}, max-texture-dim={VIEWER_EXPORT_MAX_TEXTURE_DIM})"
+        )
+    result = export_tile_viewer_data(
+        tile_id,
+        config_path=str(config) if config else None,
+        stride=VIEWER_EXPORT_STRIDE,
+        max_texture_dim=VIEWER_EXPORT_MAX_TEXTURE_DIM,
+    )
+    if quiet:
+        console.print(f"viewer-export OK → {result['output_dir']}")
+    else:
+        console.print(
+            f"[green]Viewer-Export:[/green] {result['output_dir']}\n"
+            f"  {result['vertex_count']:,} Vertices, "
+            f"{result['triangle_count']:,} Dreiecke (stride={result['stride']})\n"
+            f"  Textur {result['texture_width']}×{result['texture_height']} px "
+            f"(stride={result['texture_stride']}, max={result['max_texture_dim']})"
+        )
+    return result
 
 
 def _run_step(
@@ -366,6 +400,57 @@ def run_all_cmd(
     if json_output:
         console.print_json(json.dumps(result, default=str))
 
+    _export_viewer_after_pipeline(tile_id, config, quiet=quiet)
+
+
+@app.command("run-all-snow")
+def run_all_snow_cmd(
+    tile_id: str = typer.Option(..., help="Tile identifier"),
+    profile: str = typer.Option("davos", help="Rendering profile name"),
+    config: Optional[Path] = typer.Option(None, help="Path to default.yaml"),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Minimal output"),
+    json_output: bool = typer.Option(False, "--json", help="Print full result JSON at end"),
+) -> None:
+    """Run pipeline from snow-surface onwards (requires prior harmonize/masks/terrain)."""
+    progress = _progress(quiet)
+    progress.header("Winter-Orthofoto Pipeline (ab Schneeoberfläche)", tile_id=tile_id, profile=profile)
+
+    step_names = [title for _, title, _ in pipeline.PIPELINE_STEPS_SNOW]
+
+    if not quiet:
+        progress.info("Schritte: " + " → ".join(step_names))
+
+    if quiet:
+        result = pipeline.run_all_snow(
+            tile_id, profile, str(config) if config else None, progress=None
+        )
+        for name in step_names:
+            console.print(f"  ✓ {name}")
+    else:
+        with progress.track_steps(step_names) as tracked:
+            result = pipeline.run_all_snow(
+                tile_id, profile, str(config) if config else None, progress=tracked
+            )
+
+    qa_pass = result["qa"]["overall_pass"]
+    color = "green" if qa_pass else "yellow"
+    status = "PASS" if qa_pass else "FAIL"
+
+    console.print(Rule(f"[bold {color}]Pipeline abgeschlossen — QA {status}[/bold {color}]"))
+    progress.summary_table(
+        [
+            ("Tile", tile_id),
+            ("Profil", profile),
+            ("Winter-RGB", str(result["render"]["output"])),
+            ("QA", status),
+        ]
+    )
+
+    if json_output:
+        console.print_json(json.dumps(result, default=str))
+
+    _export_viewer_after_pipeline(tile_id, config, quiet=quiet)
+
 
 @app.command("viewer-export")
 def viewer_export_cmd(
@@ -409,6 +494,10 @@ def viewer_export_cmd(
 def viewer_cmd(
     tile_id: str = typer.Option(..., help="Tile identifier"),
     config: Optional[Path] = typer.Option(None, help="Path to default.yaml"),
+    host: str = typer.Option(
+        "0.0.0.0",
+        help="Bind address (0.0.0.0 = all interfaces, 127.0.0.1 = localhost only)",
+    ),
     port: int = typer.Option(8765, help="HTTP port for the viewer"),
     stride: Optional[int] = typer.Option(None, help="Mesh decimation stride"),
     max_texture_dim: int = typer.Option(
@@ -447,19 +536,23 @@ def viewer_cmd(
         )
 
     viewer_dir = get_project_root() / "viewer"
-    url = f"http://127.0.0.1:{port}/?tile={tile_id}"
+    local_url = f"http://127.0.0.1:{port}/?tile={tile_id}"
 
     if not quiet:
-        console.print(f"[bold]Viewer:[/bold] {url}")
+        console.print(f"[bold]Viewer:[/bold] {local_url}")
+        if host in ("0.0.0.0", "::"):
+            console.print(
+                f"[dim]Erreichbar im Netzwerk unter http://<host-ip>:{port}/?tile={tile_id}[/dim]"
+            )
 
     handler = partial(
         http.server.SimpleHTTPRequestHandler,
         directory=str(viewer_dir),
     )
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
+    server = http.server.ThreadingHTTPServer((host, port), handler)
 
     if not no_browser:
-        webbrowser.open(url)
+        webbrowser.open(local_url)
 
     if not quiet:
         console.print("Beenden mit Ctrl+C")
