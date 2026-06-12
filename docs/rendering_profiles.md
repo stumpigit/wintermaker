@@ -532,7 +532,15 @@ Fels und offener Boden.
 |---|---|
 | **Typ** | Zahl (0–1) |
 | **Standard** | `0.94` |
-| **Wirkung** | Maximale Schneefraktion auf Fels (wird durch Sichtbarkeit und Aspekt reduziert). |
+| **Wirkung** | Maximale Schneefraktion auf Fels (wird durch Sichtbarkeit und Aspekt reduziert). Ab `full_snow_thickness_m` nomineller Blanket-Dicke gilt volle Decke auch auf Felsvorsprüngen. |
+
+### `full_snow_thickness_m`
+
+| | |
+|---|---|
+| **Typ** | Meter |
+| **Standard** | wie `open_land` (`0.5`) |
+| **Wirkung** | Ab dieser nominalen Schneehöhe (`blanket_thickness_m`) wird Fels/Geröll wie voll verschneit behandelt — hohe `snow_fraction`, reduzierte `rock_visibility`. Darunter: Burial und Sichtbarkeit wie bisher. |
 
 ### `thickness_burial_radius_m`
 

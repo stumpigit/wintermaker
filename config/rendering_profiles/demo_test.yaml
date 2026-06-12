@@ -87,24 +87,25 @@ settlement:
   highlight_cap: 0.52
 
 rock:
-  slope_visibility_threshold_deg: 44
-  roughness_visibility_threshold: 0.68
-  max_snow_fraction: 0.82
+  slope_visibility_threshold_deg: 38
+  roughness_visibility_threshold: 0.52
+  max_snow_fraction: 0.94
+  full_snow_thickness_m: 0.5
   thickness_burial_radius_m: 38
-  thickness_burial_factor: 0.65
-  min_rock_visibility: 0.28
+  thickness_burial_factor: 0.85
+  min_rock_visibility: 0.18
   aspect_south_penalty: 0.08
   gentle_slope_max_deg: 32
   steep_slope_min_deg: 46
-  gentle_snow_boost: 0.22
-  gentle_render_boost: 0.42
+  gentle_snow_boost: 0.36
+  gentle_render_boost: 0.30
   hillshade_compression: 0.55
-  snow_flattening: 0.26
+  snow_flattening: 0.16
   summer_shade_weight: 0.0
   hillshade_shade_weight: 0.0
   shadow_boost: 1.38
   highlight_cap: 0.55
-  summer_preservation: 0.08
+  summer_preservation: 0.0
 
 roads:
   snow_fraction: [0.2, 0.5]
@@ -195,7 +196,7 @@ rendering:
       rock_or_bare_ground_mask:
         lum_lo: 0.72
         lum_hi: 0.94
-        strength: 0.16
+        strength: 0.0
       settlement_mask:
         lum_lo: 0.58
         lum_hi: 0.90

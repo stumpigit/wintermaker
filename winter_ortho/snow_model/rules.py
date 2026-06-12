@@ -58,21 +58,39 @@ def compute_snow_layers(
     use_thickness = snow_thickness is not None and "snow_surface" in profile
     thickness_fraction = None
     burial_fraction = None
+    rock_cover_fraction = None
     slope_snow_scale = None
     protrusion_fraction = None
     if use_thickness:
         surface_cfg = resolve_snow_surface_config(profile)
         base_height = max(surface_cfg["base_snow_height_m"], 1e-3)
-        thickness_fraction = np.clip(snow_thickness / base_height, 0.0, 1.0).astype(np.float32)
+        effective_depth = _effective_snow_depth(
+            snow_thickness,
+            blanket_thickness,
+            accumulation_mask,
+        )
+        assert effective_depth is not None
+        thickness_fraction = np.clip(effective_depth / base_height, 0.0, 1.0).astype(np.float32)
         resolution_m = float(config.get("resolution_m", 2.0))
         rock_cfg = profile.get("rock", {})
         burial_radius_m = float(rock_cfg.get("thickness_burial_radius_m", 20.0))
         burial_fraction = _local_burial_fraction(
-            snow_thickness,
+            effective_depth,
             base_height,
             resolution_m=resolution_m,
             radius_m=burial_radius_m,
         )
+        if blanket_thickness is not None:
+            full_m = max(
+                float(
+                    rock_cfg.get(
+                        "full_snow_thickness_m",
+                        profile.get("open_land", {}).get("full_snow_thickness_m", 0.5),
+                    )
+                ),
+                1e-3,
+            )
+            rock_cover_fraction = np.clip(blanket_thickness / full_m, 0.0, 1.0).astype(np.float32)
 
     open_cfg = profile.get("open_land", {})
     slope = terrain["slope"]
@@ -142,6 +160,7 @@ def compute_snow_layers(
         profile,
         thickness_fraction=thickness_fraction,
         burial_fraction=burial_fraction,
+        rock_cover_fraction=rock_cover_fraction,
     ))
     apply_exclusive("open_land_mask", lambda m: _apply_open_land(
         m,
@@ -323,12 +342,14 @@ def _apply_rock(
     *,
     thickness_fraction: np.ndarray | None = None,
     burial_fraction: np.ndarray | None = None,
+    rock_cover_fraction: np.ndarray | None = None,
 ) -> None:
     rock_cfg = profile["rock"]
     gentle_max = float(rock_cfg.get("gentle_slope_max_deg", 28))
     steep_min = float(rock_cfg.get("steep_slope_min_deg", 42))
     slope_t = np.clip((slope - gentle_max) / max(steep_min - gentle_max, 1e-3), 0, 1)
     gentle_factor = 1.0 - slope_t
+    max_snow = float(rock_cfg["max_snow_fraction"])
 
     rock_vis = np.clip(
         (slope - rock_cfg["slope_visibility_threshold_deg"]) / 30.0
@@ -340,26 +361,35 @@ def _apply_rock(
     rock_vis = np.maximum(rock_vis, min_vis)
     rock_vis = rock_vis * (0.12 + 0.88 * slope_t)
 
-    snow_cover = burial_fraction if burial_fraction is not None else thickness_fraction
+    snow_cover = rock_cover_fraction
+    if snow_cover is None:
+        snow_cover = burial_fraction if burial_fraction is not None else thickness_fraction
+    thick_enough = rock_cover_fraction >= 1.0 if rock_cover_fraction is not None else None
     if snow_cover is not None:
         burial_strength = float(rock_cfg.get("thickness_burial_factor", 0.82))
         burial = np.clip(snow_cover * burial_strength * gentle_factor, 0.0, 1.0)
         rock_vis = rock_vis * (1.0 - burial)
         rock_vis = np.maximum(rock_vis, min_vis * (1.0 - 0.75 * burial))
+        if thick_enough is not None:
+            rock_vis = np.where(thick_enough, rock_vis * 0.25, rock_vis)
 
     rock_visibility[mask] = rock_vis[mask]
 
     gentle_boost = float(rock_cfg.get("gentle_snow_boost", 0.22))
+    vis_penalty = 0.20 if thick_enough is None else np.where(thick_enough, 0.05, 0.20)
     if thickness_fraction is not None:
         cover = snow_cover if snow_cover is not None else thickness_fraction
-        rock_base = cover * rock_cfg["max_snow_fraction"]
+        if rock_cover_fraction is not None:
+            rock_base = np.where(thick_enough, max_snow, cover * max_snow)
+        else:
+            rock_base = cover * max_snow
         rock_snow = np.clip(
             rock_base
-            - rock_vis * 0.20
+            - rock_vis * vis_penalty
             - aspect_mod * rock_cfg.get("aspect_south_penalty", 0.12)
             + gentle_factor * gentle_boost * 0.5,
             0.20,
-            0.97,
+            max_snow,
         )
     else:
         rock_snow = np.clip(
@@ -446,6 +476,22 @@ def _apply_open_land(
     summer_exposure[mask] = np.maximum(summer_exposure[mask], exposure_vals)
 
 
+def _effective_snow_depth(
+    snow_thickness: np.ndarray | None,
+    blanket_thickness: np.ndarray | None,
+    accumulation_mask: np.ndarray | None,
+) -> np.ndarray | None:
+    """Nominal blanket depth in accumulation zones; geometric depth on steep faces."""
+    if snow_thickness is None:
+        return None
+    if blanket_thickness is not None and accumulation_mask is not None:
+        on_accum = accumulation_mask > 0
+        return np.where(on_accum, blanket_thickness, snow_thickness).astype(np.float32)
+    if blanket_thickness is not None:
+        return blanket_thickness.astype(np.float32)
+    return snow_thickness.astype(np.float32)
+
+
 def _open_land_depth_for_gating(
     mask: np.ndarray,
     *,
@@ -453,20 +499,10 @@ def _open_land_depth_for_gating(
     blanket_thickness_m: np.ndarray | None,
     accumulation_mask: np.ndarray | None,
 ) -> np.ndarray | None:
-    """Nominal blanket depth in accumulation zones; geometric depth on steep faces."""
-    if blanket_thickness_m is not None and accumulation_mask is not None:
-        on_accum = accumulation_mask[mask] > 0
-        geometric = (
-            snow_thickness_m[mask]
-            if snow_thickness_m is not None
-            else np.zeros(int(mask.sum()), dtype=np.float32)
-        )
-        return np.where(on_accum, blanket_thickness_m[mask], geometric).astype(np.float32)
-    if blanket_thickness_m is not None:
-        return blanket_thickness_m[mask]
-    if snow_thickness_m is not None:
-        return snow_thickness_m[mask]
-    return None
+    depth = _effective_snow_depth(snow_thickness_m, blanket_thickness_m, accumulation_mask)
+    if depth is None:
+        return None
+    return depth[mask]
 
 
 def _open_land_slope_snow_scale(slope: np.ndarray, open_cfg: dict[str, Any]) -> np.ndarray:
