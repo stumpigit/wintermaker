@@ -31,7 +31,16 @@ Erzeugt `snow_surface_dem.tif` und `snow_thickness_m.tif`. Aktiviert dickengest�
 | **Typ** | Zahl (Meter) |
 | **Standard** | `2.0` |
 | **Bereich** | ≥ 0; typisch 0.5–10 |
-| **Wirkung** | Referenz-Schneehöhe auf ebenem Gelände. Skaliert die gesamte Schneedicke und dient als Nenner für `thickness_fraction` (0–1) in den Klassenregeln. |
+| **Wirkung** | Referenz-Schneehöhe für volle Schneedecke (`thickness_fraction` = 1). Dient als Nenner in den Klassenregeln. Die tatsächliche Tiefe wird mit `snow_amount` skaliert. |
+
+### `snow_amount`
+
+| | |
+|---|---|
+| **Typ** | Zahl (0–1+) |
+| **Standard** | `1.0` |
+| **Bereich** | typisch 0.25–1.0 |
+| **Wirkung** | Globaler Multiplikator auf die berechnete Schneedicke. `base_snow_height_m: 2.0` und `snow_amount: 0.4` ergeben ca. 0.8 m auf flachem Gelände und `thickness_fraction` ≈ 0.4 — ohne die Referenzhöhe zu ändern. **Nur `base_snow_height_m` zu senken reicht nicht**, weil Dicke und Nenner gleich skaliert werden. |
 
 ### `max_accumulation_slope_deg`
 

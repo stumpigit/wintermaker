@@ -1,21 +1,22 @@
 profile: demo_test
-snow_surface:  
+snow_surface:
   base_snow_height_m: 2.0
-  max_accumulation_slope_deg: 35
+  snow_amount: 0.4
+  max_accumulation_slope_deg: 32
   accumulation_transition_deg: 20
   accumulation_edge_feather_m: 45
   # Slope-dependent DEM leveling: fill small depressions on gentle slopes, raw DEM on cliffs.
-  leveling_full_slope_deg: 30
-  leveling_end_slope_deg: 35
-  smoothing_sigma_m: 100
-  micro_suppression: 0.90
-  depression_fill: 0.95
+  leveling_full_slope_deg: 28
+  leveling_end_slope_deg: 33
+  smoothing_sigma_m: 55
+  micro_suppression: 0.45
+  depression_fill: 0.75
   tpi_smoothing_sigma_m: 70
-  thickness_smoothing_sigma_m: 45
-  surface_post_smooth_sigma_m: 20
-  surface_macro_smooth_sigma_m: 25
+  thickness_smoothing_sigma_m: 25
+  surface_post_smooth_sigma_m: 12
+  surface_macro_smooth_sigma_m: 15
   accumulation_blend_sigma_m: 15
-  cover_transition_sigma_m: 30
+  cover_transition_sigma_m: 20
   valley_deposition_factor: 0.15
   ridge_scour_factor: 0.10
   ridge_micro_retention: 0.12
@@ -31,7 +32,7 @@ aspect:
   north_boost: 0.12
 
 open_land:
-  snow_fraction: [0.97, 1.0]
+  snow_fraction: [0.88, 0.96]
   snow_brightness: 0.98
   snow_texture_strength: 0.28
   original_texture_visibility: 0.0
@@ -75,24 +76,24 @@ settlement:
   highlight_cap: 0.52
 
 rock:
-  slope_visibility_threshold_deg: 38
-  roughness_visibility_threshold: 0.52
-  max_snow_fraction: 0.94
-  thickness_burial_radius_m: 22
-  thickness_burial_factor: 0.85
-  min_rock_visibility: 0.18
+  slope_visibility_threshold_deg: 44
+  roughness_visibility_threshold: 0.68
+  max_snow_fraction: 0.82
+  thickness_burial_radius_m: 38
+  thickness_burial_factor: 0.65
+  min_rock_visibility: 0.28
   aspect_south_penalty: 0.08
   gentle_slope_max_deg: 32
   steep_slope_min_deg: 46
-  gentle_snow_boost: 0.36
-  gentle_render_boost: 0.30
+  gentle_snow_boost: 0.22
+  gentle_render_boost: 0.42
   hillshade_compression: 0.55
   snow_flattening: 0.26
   summer_shade_weight: 0.0
   hillshade_shade_weight: 0.0
   shadow_boost: 1.38
   highlight_cap: 0.55
-  summer_preservation: 0.20
+  summer_preservation: 0.08
 
 roads:
   snow_fraction: [0.2, 0.5]

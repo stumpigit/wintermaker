@@ -253,6 +253,36 @@ def test_noisy_pixel_slope_does_not_punch_holes_when_blend_smoothing_enabled() -
     assert thick[gentle].mean() > 1.9
 
 
+def test_snow_amount_scales_thickness_without_changing_reference_height() -> None:
+    dem, slope, tpi, aspect = _flat_terrain()
+    full = compute_snow_surface_arrays(
+        dem,
+        slope,
+        tpi,
+        aspect,
+        resolve_snow_surface_config(
+            {"snow_surface": {"base_snow_height_m": 2.0, "snow_amount": 1.0}}
+        ),
+        resolution_m=1.0,
+    )["snow_thickness_m"]
+    reduced = compute_snow_surface_arrays(
+        dem,
+        slope,
+        tpi,
+        aspect,
+        resolve_snow_surface_config(
+            {"snow_surface": {"base_snow_height_m": 2.0, "snow_amount": 0.4}}
+        ),
+        resolution_m=1.0,
+    )["snow_thickness_m"]
+
+    flat_full = float(full[10, 10])
+    flat_reduced = float(reduced[10, 10])
+    assert np.isclose(flat_full, 2.0, atol=0.05)
+    assert np.isclose(flat_reduced, 0.8, atol=0.05)
+    assert np.isclose(flat_reduced / flat_full, 0.4, atol=0.02)
+
+
 def test_base_snow_height_shifts_surface_on_noisy_terrain() -> None:
     width, height = 96, 96
     dem = np.full((height, width), 2000.0, dtype=np.float32)

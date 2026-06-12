@@ -12,6 +12,7 @@ from winter_ortho.utils.raster import write_cog
 
 DEFAULT_SNOW_SURFACE_CONFIG: dict[str, float] = {
     "base_snow_height_m": 2.0,
+    "snow_amount": 1.0,
     "max_accumulation_slope_deg": 30.0,
     "accumulation_transition_deg": 10.0,
     "accumulation_edge_feather_m": 25.0,
@@ -86,6 +87,10 @@ def compute_snow_surface_arrays(
     thickness *= 1.0 - cfg["windward_aspect_penalty"] * ridge_factor * windward
 
     thickness = np.maximum(thickness, 0.0).astype(np.float32)
+
+    snow_amount = float(cfg.get("snow_amount", 1.0))
+    if snow_amount != 1.0:
+        thickness = (thickness * snow_amount).astype(np.float32)
 
     thickness_sigma_m = float(cfg.get("thickness_smoothing_sigma_m", 0.0))
     if thickness_sigma_m > 0.0:
