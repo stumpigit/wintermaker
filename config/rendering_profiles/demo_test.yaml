@@ -33,6 +33,13 @@ aspect:
 
 open_land:
   snow_fraction: [0.88, 0.96]
+  slope_snow_start_deg: 26
+  slope_snow_end_deg: 38
+  slope_min_snow_scale: 0.05
+  slope_texture_visibility: 0.82
+  protrusion_full_m: 0.5
+  protrusion_snow_reduction: 0.95
+  protrusion_texture_visibility: 0.90
   snow_brightness: 0.98
   snow_texture_strength: 0.28
   original_texture_visibility: 0.0

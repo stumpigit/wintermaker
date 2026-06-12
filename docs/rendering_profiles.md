@@ -263,7 +263,31 @@ Offenes Gelände (Wiesen, Weiden, alpine Matten).
 |---|---|
 | **Typ** | `[min, max]` (0–1) |
 | **Standard** | `[0.97, 1.0]` |
-| **Wirkung** | Ziel-Schneefraktion. Mit Schneedicke: interpoliert zwischen min und max nach `thickness_fraction`; ohne: Höhenmodifikator + fester Anteil. |
+| **Wirkung** | Ziel-Schneefraktion. Mit Schneedicke: interpoliert zwischen min und max nach `thickness_fraction`; ohne: Höhenmodifikator + fester Anteil. Auf Steilhängen und bei Gelände über der Schneedecke kann die Fraktion **unter min** fallen (siehe unten). |
+
+### `slope_snow_start_deg`, `slope_snow_end_deg`, `slope_min_snow_scale`
+
+| | |
+|---|---|
+| **Typ** | Grad / Grad / Zahl (0–1) |
+| **Standard** | `28` / `40` / `0.05` |
+| **Wirkung** | Reduziert Schnee auf offenem Gelände mit zunehmender Hangneigung — unabhängig vom `snow_fraction`-Minimum. Steile Flanken können nahezu schneefrei werden. |
+
+### `slope_texture_visibility`
+
+| | |
+|---|---|
+| **Typ** | Zahl (0–1) |
+| **Standard** | `0.7` |
+| **Wirkung** | Sommerbild-Durchscheinen auf steilen offenen Hängen (`summer_exposure`). |
+
+### `protrusion_full_m`, `protrusion_snow_reduction`, `protrusion_texture_visibility`
+
+| | |
+|---|---|
+| **Typ** | Meter / Zahl (0–1) / Zahl (0–1) |
+| **Standard** | `0.6` / `0.9` / `0.85` |
+| **Wirkung** | Wo das Sommer-DEM über `snow_surface_dem` ragt (Geröllfelder, Felsinseln): Schnee wird reduziert und Sommertextur eingeblendet. `protrusion_full_m` = Höhendifferenz für vollen Effekt. |
 
 ### `snow_brightness`
 

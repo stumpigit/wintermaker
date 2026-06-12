@@ -75,10 +75,15 @@ def _load_snow_layers(paths) -> dict[str, Any]:
         "road_visibility",
         "roof_snow_intensity",
         "ice_probability",
+        "summer_exposure",
     ]
-    layers = {}
+    optional = {"summer_exposure"}
+    layers: dict[str, Any] = {}
     for name in names:
-        data, _ = read_raster(str(getattr(paths, name)))
+        layer_path = getattr(paths, name)
+        if name in optional and not layer_path.exists():
+            continue
+        data, _ = read_raster(str(layer_path))
         layers[name] = data[0] if data.ndim == 3 else data
     return layers
 
@@ -204,6 +209,7 @@ def run_snow(
         class_masks,
         terrain,
         snow_thickness=snow_surface.get("snow_thickness_m"),
+        snow_surface_dem=snow_surface.get("snow_surface_dem"),
         progress=progress,
     )
     return {"layer_count": len(layers)}

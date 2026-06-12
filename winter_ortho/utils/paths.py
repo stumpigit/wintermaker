@@ -114,6 +114,10 @@ class TilePaths:
         return self.output_dir / f"{self.tile_id}_ice_probability.tif"
 
     @property
+    def summer_exposure(self) -> Path:
+        return self.output_dir / f"{self.tile_id}_summer_exposure.tif"
+
+    @property
     def landcover_mask(self) -> Path:
         return self.output_dir / f"{self.tile_id}_landcover_mask.tif"
 

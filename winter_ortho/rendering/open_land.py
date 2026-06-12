@@ -32,6 +32,7 @@ def render_open_land(
     cast_shadow_weight: float = 0.28,
     shadow_boost: float = 1.35,
     highlight_cap: float = 0.45,
+    summer_exposure: np.ndarray | None = None,
     **_: object,
 ) -> np.ndarray:
     out = rgb.copy()
@@ -71,6 +72,8 @@ def render_open_land(
     alpha = snow_cover_alpha(snow_fraction, max_snow_blend=max_snow_blend)
     snowy = blend(summer, snow_layer, alpha)
     texture_vis = original_texture_visibility * (1.0 - alpha)
+    if summer_exposure is not None:
+        texture_vis = np.maximum(texture_vis, summer_exposure * (1.0 - alpha * 0.35))
     snowy = blend(snowy, summer, texture_vis)
     out[active] = snowy[active]
     return out

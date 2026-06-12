@@ -140,6 +140,7 @@ def render_winter_tile(
         snow_fraction=snow_layers["snow_fraction"],
         snow_brightness=snow_layers["snow_brightness"],
         snow_texture_strength=snow_layers["snow_texture_strength"],
+        summer_exposure=snow_layers.get("summer_exposure"),
         hillshade=render_hillshade,
         hillshade_generalized=hill_generalized,
         cast_shadow=cast_shadow,
