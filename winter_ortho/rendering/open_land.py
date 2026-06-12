@@ -73,7 +73,7 @@ def render_open_land(
     snowy = blend(summer, snow_layer, alpha)
     texture_vis = original_texture_visibility * (1.0 - alpha)
     if summer_exposure is not None:
-        texture_vis = np.maximum(texture_vis, summer_exposure * (1.0 - alpha * 0.35))
+        texture_vis = np.maximum(texture_vis, summer_exposure * (1.0 - alpha))
     snowy = blend(snowy, summer, texture_vis)
     out[active] = snowy[active]
     return out

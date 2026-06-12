@@ -75,7 +75,8 @@ def compute_snow_layers(
     open_cfg = profile.get("open_land", {})
     slope = terrain["slope"]
     if use_thickness and snow_surface_dem is not None:
-        slope_snow_scale = _open_land_slope_snow_scale(slope, open_cfg)
+        if float(open_cfg.get("slope_snow_strength", 1.0)) > 0.0:
+            slope_snow_scale = _open_land_slope_snow_scale(slope, open_cfg)
         protrusion_fraction = _terrain_protrusion_fraction(
             terrain["elevation"],
             snow_surface_dem,
@@ -385,15 +386,20 @@ def _apply_open_land(
     lo, hi = open_cfg["snow_fraction"]
     if thickness_fraction is not None:
         cover = lo + (hi - lo) * thickness_fraction[mask]
+        thin_gate = 1.0 - thickness_fraction[mask]
     else:
         cover = lo + (hi - lo) * 0.68 + elev_mod[mask] * 0.5
+        thin_gate = np.ones(int(mask.sum()), dtype=np.float32)
 
     if slope_snow_scale is not None:
-        cover = cover * slope_snow_scale[mask]
+        slope_strength = float(open_cfg.get("slope_snow_strength", 1.0))
+        penalty = (1.0 - slope_snow_scale[mask]) * thin_gate * slope_strength
+        cover = cover * (1.0 - penalty)
 
     if protrusion_fraction is not None:
         prot_red = float(open_cfg.get("protrusion_snow_reduction", 0.9))
-        cover = cover * (1.0 - protrusion_fraction[mask] * prot_red)
+        prot_strength = float(open_cfg.get("protrusion_strength", 1.0))
+        cover = cover * (1.0 - protrusion_fraction[mask] * prot_red * prot_strength)
 
     snow_fraction[mask] = np.clip(cover, 0.0, hi)
     snow_brightness[mask] = open_cfg["snow_brightness"]
@@ -402,10 +408,18 @@ def _apply_open_land(
     exposure_vals = np.zeros(int(mask.sum()), dtype=np.float32)
     if slope_snow_scale is not None:
         steep_vis = float(open_cfg.get("slope_texture_visibility", 0.7))
-        exposure_vals = np.maximum(exposure_vals, (1.0 - slope_snow_scale[mask]) * steep_vis)
+        slope_strength = float(open_cfg.get("slope_snow_strength", 1.0))
+        exposure_vals = np.maximum(
+            exposure_vals,
+            (1.0 - slope_snow_scale[mask]) * steep_vis * thin_gate * slope_strength,
+        )
     if protrusion_fraction is not None:
         prot_vis = float(open_cfg.get("protrusion_texture_visibility", 0.85))
-        exposure_vals = np.maximum(exposure_vals, protrusion_fraction[mask] * prot_vis)
+        prot_strength = float(open_cfg.get("protrusion_strength", 1.0))
+        exposure_vals = np.maximum(
+            exposure_vals,
+            protrusion_fraction[mask] * prot_vis * prot_strength,
+        )
     summer_exposure[mask] = np.maximum(summer_exposure[mask], exposure_vals)
 
 
