@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 import rasterio
 from pyproj import Transformer
+from scipy import ndimage
 
 from winter_ortho.utils.config import load_config
 from winter_ortho.utils.paths import get_project_root, tile_paths
@@ -43,6 +44,17 @@ def _auto_stride(width: int, height: int, max_dim: int = MAX_GRID_DIM) -> int:
     return int(np.ceil(longest / max_dim))
 
 
+def _fill_nearest_valid(elevation: np.ndarray, valid: np.ndarray) -> np.ndarray:
+    """Fill invalid DEM samples from the nearest valid neighbor (avoids mesh tears)."""
+    filled = elevation.astype(np.float64, copy=True)
+    invalid = ~valid
+    if not np.any(invalid) or not np.any(valid):
+        return filled
+    _, indices = ndimage.distance_transform_edt(invalid, return_indices=True)
+    filled[invalid] = filled[indices[0][invalid], indices[1][invalid]]
+    return filled
+
+
 def _build_mesh(
     dem: np.ndarray,
     *,
@@ -52,21 +64,19 @@ def _build_mesh(
     reference_min_z: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, float, float]:
     """Build a decimated height-field mesh in a local Three.js-friendly frame."""
+    del nodata_mask  # Mesh geometry follows DEM only; ortho nodata must not punch holes.
     height_px, width_px = dem.shape
     rows = np.arange(0, height_px, stride, dtype=np.int32)
     cols = np.arange(0, width_px, stride, dtype=np.int32)
     grid_h, grid_w = len(rows), len(cols)
 
     dem_sample = dem[np.ix_(rows, cols)].astype(np.float64)
-    valid = np.isfinite(dem_sample) & (dem_sample != NODATA)
-    if nodata_mask is not None:
-        nodata_sample = nodata_mask[np.ix_(rows, cols)]
-        valid &= ~nodata_sample
+    dem_valid = np.isfinite(dem_sample) & (dem_sample != NODATA)
+    elevation = _fill_nearest_valid(dem_sample, dem_valid)
 
-    sample_min = float(np.nanmin(np.where(valid, dem_sample, np.nan)))
-    max_z = float(np.nanmax(np.where(valid, dem_sample, np.nan)))
+    sample_min = float(np.min(elevation[dem_valid])) if np.any(dem_valid) else 0.0
+    max_z = float(np.max(elevation[dem_valid])) if np.any(dem_valid) else sample_min
     min_z = sample_min if reference_min_z is None else float(reference_min_z)
-    fill_z = sample_min if reference_min_z is None else float(reference_min_z)
 
     center_x = transform.c + (width_px * transform.a) / 2.0
     center_y = transform.f + (height_px * transform.e) / 2.0
@@ -80,12 +90,10 @@ def _build_mesh(
         northing = transform.f + (row + 0.5) * transform.e
         for gj, col in enumerate(cols):
             easting = transform.c + (col + 0.5) * transform.a
-            elevation = dem_sample[gi, gj]
-            if not valid[gi, gj]:
-                elevation = fill_z
+            z = elevation[gi, gj]
 
             positions[idx] = easting - center_x
-            positions[idx + 1] = elevation - min_z
+            positions[idx + 1] = z - min_z
             positions[idx + 2] = -(northing - center_y)
 
             uvs[idx // 3 * 2] = col / max(width_px - 1, 1)
@@ -96,10 +104,10 @@ def _build_mesh(
     for gi in range(grid_h - 1):
         for gj in range(grid_w - 1):
             if not (
-                valid[gi, gj]
-                and valid[gi, gj + 1]
-                and valid[gi + 1, gj]
-                and valid[gi + 1, gj + 1]
+                dem_valid[gi, gj]
+                or dem_valid[gi, gj + 1]
+                or dem_valid[gi + 1, gj]
+                or dem_valid[gi + 1, gj + 1]
             ):
                 continue
             i00 = gi * grid_w + gj

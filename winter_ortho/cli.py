@@ -461,12 +461,12 @@ def viewer_export_cmd(
         help="Output directory (default: viewer/data/{tile_id})",
     ),
     stride: Optional[int] = typer.Option(
-        None,
-        help="Mesh decimation stride (default: auto, ~256 px grid)",
+        VIEWER_EXPORT_STRIDE,
+        help=f"Mesh decimation stride (default: {VIEWER_EXPORT_STRIDE}, same as run-all)",
     ),
     max_texture_dim: int = typer.Option(
-        1024,
-        help="Max orthophoto texture edge length in pixels (default: 1024)",
+        VIEWER_EXPORT_MAX_TEXTURE_DIM,
+        help=f"Max orthophoto texture edge length in pixels (default: {VIEWER_EXPORT_MAX_TEXTURE_DIM})",
     ),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Minimal output"),
 ) -> None:

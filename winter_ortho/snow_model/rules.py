@@ -377,19 +377,28 @@ def _apply_rock(
 
     gentle_boost = float(rock_cfg.get("gentle_snow_boost", 0.22))
     vis_penalty = 0.20 if thick_enough is None else np.where(thick_enough, 0.05, 0.20)
+
+    # Slope-dependent cap: even with full snow cover, steep rock stays partially
+    # visible. gentle_max → no reduction; steep_min → reduced by steep_snow_cap.
+    steep_snow_cap = float(rock_cfg.get("steep_snow_cap", 0.0))
+    if steep_snow_cap > 0.0:
+        slope_cap = max_snow * (1.0 - slope_t * steep_snow_cap)
+    else:
+        slope_cap = np.full_like(slope_t, max_snow)
+
     if thickness_fraction is not None:
         cover = snow_cover if snow_cover is not None else thickness_fraction
         if rock_cover_fraction is not None:
-            rock_base = np.where(thick_enough, max_snow, cover * max_snow)
+            rock_base = np.where(thick_enough, slope_cap, cover * slope_cap)
         else:
-            rock_base = cover * max_snow
+            rock_base = cover * slope_cap
         rock_snow = np.clip(
             rock_base
             - rock_vis * vis_penalty
             - aspect_mod * rock_cfg.get("aspect_south_penalty", 0.12)
             + gentle_factor * gentle_boost * 0.5,
             0.20,
-            max_snow,
+            slope_cap,
         )
     else:
         rock_snow = np.clip(

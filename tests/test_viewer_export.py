@@ -44,6 +44,27 @@ def test_build_mesh_produces_valid_geometry() -> None:
     assert indices.max() < positions.shape[0] // 3
 
 
+def test_build_mesh_ignores_ortho_nodata_for_geometry() -> None:
+    dem = np.linspace(1000, 1100, 10 * 10, dtype=np.float32).reshape(10, 10)
+    transform = Affine(1.0, 0.0, 0.0, 0.0, -1.0, 10.0)
+    ortho_nodata = np.zeros((10, 10), dtype=bool)
+    ortho_nodata[4, 4] = True
+
+    _, _, indices_without, _, _ = _build_mesh(
+        dem,
+        transform=transform,
+        stride=1,
+        nodata_mask=None,
+    )
+    _, _, indices_with, _, _ = _build_mesh(
+        dem,
+        transform=transform,
+        stride=1,
+        nodata_mask=ortho_nodata,
+    )
+    assert len(indices_with) == len(indices_without)
+
+
 def test_build_mesh_reference_min_z_aligns_vertex_frames() -> None:
     dem = np.full((20, 20), 1000.0, dtype=np.float32)
     dem[5:10, 5:10] = 1005.0

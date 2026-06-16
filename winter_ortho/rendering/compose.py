@@ -197,7 +197,7 @@ def render_winter_tile(
         snow_flattening=float(rock_cfg.get("snow_flattening", 0.40)),
         gentle_slope_max_deg=float(rock_cfg.get("gentle_slope_max_deg", 28)),
         steep_slope_min_deg=float(rock_cfg.get("steep_slope_min_deg", 42)),
-        gentle_snow_boost=float(rock_cfg.get("gentle_render_boost", 0.18)),
+        gentle_snow_boost=float(rock_cfg.get("gentle_snow_boost", 0.18)),
         summer_shade_weight=float(rock_cfg.get("summer_shade_weight", 0.55)),
         hillshade_shade_weight=float(rock_cfg.get("hillshade_shade_weight", 0.45)),
         shadow_boost=float(rock_cfg.get("shadow_boost", 1.45)),

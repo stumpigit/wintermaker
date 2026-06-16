@@ -4,7 +4,7 @@ import numpy as np
 
 from winter_ortho.features.texture import band_limited_noise
 from winter_ortho.rendering.base import blend, modulate_snow_layer_brightness, snow_cover_alpha
-from winter_ortho.rendering.relief import shade_snow_layer
+from winter_ortho.rendering.relief import desaturate, shade_snow_layer
 from winter_ortho.rendering.summer_structure import combined_shade_field
 
 
@@ -74,6 +74,9 @@ def render_open_land(
     texture_vis = original_texture_visibility * (1.0 - alpha)
     if summer_exposure is not None:
         texture_vis = np.maximum(texture_vis, summer_exposure * (1.0 - alpha))
-    snowy = blend(snowy, summer, texture_vis)
+    # When letting summer texture show through on steep/thin snow, desaturate it to
+    # avoid blue-ish speckles from the underlying orthophoto.
+    summer_tex = desaturate(summer, np.where(active, 0.55, 0.0))
+    snowy = blend(snowy, summer_tex, texture_vis)
     out[active] = snowy[active]
     return out
