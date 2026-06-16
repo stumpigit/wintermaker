@@ -16,6 +16,7 @@ from rich.rule import Rule
 from winter_ortho import pipeline
 from winter_ortho.data_prep.region import prepare_region
 from winter_ortho.pipeline import PIPELINE_STEPS
+from winter_ortho.utils.config import DEFAULT_PROFILE
 from winter_ortho.utils.paths import get_project_root
 from winter_ortho.utils.progress import PipelineProgress
 from winter_ortho.viewer.export import export_tile_viewer_data
@@ -138,7 +139,7 @@ def terrain(
 @app.command("snow-surface")
 def snow_surface_cmd(
     tile_id: str = typer.Option(..., help="Tile identifier"),
-    profile: str = typer.Option("davos", help="Rendering profile name"),
+    profile: str = typer.Option(DEFAULT_PROFILE, help="Rendering profile name"),
     config: Optional[Path] = typer.Option(None, help="Path to default.yaml"),
     snow_height: Optional[float] = typer.Option(
         None,
@@ -169,7 +170,7 @@ def snow_surface_cmd(
 @app.command("snow")
 def snow_cmd(
     tile_id: str = typer.Option(..., help="Tile identifier"),
-    profile: str = typer.Option("davos", help="Rendering profile name"),
+    profile: str = typer.Option(DEFAULT_PROFILE, help="Rendering profile name"),
     config: Optional[Path] = typer.Option(None, help="Path to default.yaml"),
     snow_height: Optional[float] = typer.Option(
         None,
@@ -200,7 +201,7 @@ def snow_cmd(
 @app.command()
 def render(
     tile_id: str = typer.Option(..., help="Tile identifier"),
-    profile: str = typer.Option("davos", help="Rendering profile name"),
+    profile: str = typer.Option(DEFAULT_PROFILE, help="Rendering profile name"),
     config: Optional[Path] = typer.Option(None, help="Path to default.yaml"),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Minimal output"),
 ) -> None:
@@ -243,7 +244,7 @@ def qa(
 
 @app.command("prepare-region")
 def prepare_region_cmd(
-    name: str = typer.Option(..., "--name", "-n", help="Region/profile name"),
+    name: str = typer.Option(..., "--name", "-n", help="Region name"),
     extent: str = typer.Option(
         ...,
         "--extent",
@@ -278,7 +279,7 @@ def prepare_region_cmd(
         if not quiet:
             progress.info(message)
 
-    progress.header("Regionsdaten vorbereiten", tile_id=f"{name}_001", profile=name)
+    progress.header("Regionsdaten vorbereiten", tile_id=f"{name}_001", profile=DEFAULT_PROFILE)
     progress.step_begin(1, 1, "Orthofoto, DEM und Vektoren laden")
 
     result = prepare_region(
@@ -301,7 +302,7 @@ def prepare_region_cmd(
     summary_rows = [
         ("Name", name),
         ("Tile", str(result["tile_id"])),
-        ("Profil", name),
+        ("Profil", DEFAULT_PROFILE),
         ("Config", str(result["config"])),
         ("Daten", str(result["region_dir"])),
     ]
@@ -355,7 +356,7 @@ def extract_tlm3d_cmd(
 @app.command("run-all")
 def run_all_cmd(
     tile_id: str = typer.Option(..., help="Tile identifier"),
-    profile: str = typer.Option("davos", help="Rendering profile name"),
+    profile: str = typer.Option(DEFAULT_PROFILE, help="Rendering profile name"),
     config: Optional[Path] = typer.Option(None, help="Path to default.yaml"),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Minimal output"),
     json_output: bool = typer.Option(False, "--json", help="Print full result JSON at end"),
@@ -406,7 +407,7 @@ def run_all_cmd(
 @app.command("run-all-snow")
 def run_all_snow_cmd(
     tile_id: str = typer.Option(..., help="Tile identifier"),
-    profile: str = typer.Option("davos", help="Rendering profile name"),
+    profile: str = typer.Option(DEFAULT_PROFILE, help="Rendering profile name"),
     config: Optional[Path] = typer.Option(None, help="Path to default.yaml"),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Minimal output"),
     json_output: bool = typer.Option(False, "--json", help="Print full result JSON at end"),

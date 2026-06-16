@@ -122,7 +122,7 @@ def synthetic_tile(project_root: Path) -> dict:
         "protect_hard_masks": ["water_mask", "building_mask", "road_mask", "forest_mask"],
     }
     davos_profile = {
-        "profile": "davos",
+        "profile": "default",
         "elevation": {"reference_m": 1560, "snow_increase_per_100m": 0.03, "max_boost": 0.15},
         "aspect": {"south_thinning": 0.12, "north_boost": 0.08},
         "open_land": {
@@ -203,7 +203,7 @@ def synthetic_tile(project_root: Path) -> dict:
     (project_root / "config" / "class_rules.yaml").write_text(
         yaml.dump(class_rules), encoding="utf-8"
     )
-    (project_root / "config" / "rendering_profiles" / "davos.yaml").write_text(
+    (project_root / "config" / "rendering_profiles" / "default.yaml").write_text(
         yaml.dump(davos_profile), encoding="utf-8"
     )
 

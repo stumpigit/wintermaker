@@ -14,7 +14,7 @@ def test_qa_runs_after_full_pipeline(synthetic_tile: dict) -> None:
     tile_id = synthetic_tile["tile_id"]
     config_path = str(synthetic_tile["config_path"])
 
-    result = pipeline.run_all(tile_id, "davos", config_path)
+    result = pipeline.run_all(tile_id, "default", config_path)
 
     assert "qa" in result
     assert "checks" in result["qa"]

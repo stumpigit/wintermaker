@@ -18,7 +18,7 @@ def test_winter_render_is_brighter_than_summer(synthetic_tile: dict) -> None:
     tile_id = synthetic_tile["tile_id"]
     config_path = str(synthetic_tile["config_path"])
 
-    pipeline.run_all(tile_id, "davos", config_path)
+    pipeline.run_all(tile_id, "default", config_path)
     paths = tile_paths(
         __import__("winter_ortho.utils.config", fromlist=["load_config"]).load_config(config_path),
         tile_id,
@@ -96,7 +96,7 @@ def test_low_snow_brightness_does_not_reduce_cover() -> None:
 def test_snow_fraction_in_valid_range(synthetic_tile: dict) -> None:
     tile_id = synthetic_tile["tile_id"]
     config_path = str(synthetic_tile["config_path"])
-    pipeline.run_all(tile_id, "davos", config_path)
+    pipeline.run_all(tile_id, "default", config_path)
 
     paths = tile_paths(
         __import__("winter_ortho.utils.config", fromlist=["load_config"]).load_config(config_path),

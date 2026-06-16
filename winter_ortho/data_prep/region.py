@@ -16,10 +16,10 @@ from winter_ortho.data_prep.wmts import (
     tile_range_for_bbox,
     zoom_for_resolution,
 )
+from winter_ortho.utils.config import DEFAULT_PROFILE
 from winter_ortho.utils.paths import get_project_root
 
 DEFAULT_TLM_SOURCE = "data/raw/swisstlm/SWISSTLM3D_2026_LV95_LN02.gpkg"
-PROFILE_TEMPLATE = "davos"
 
 
 def _validate_name(name: str) -> str:
@@ -40,10 +40,6 @@ def region_raw_dir(root: Path, name: str) -> Path:
 
 def region_config_path(root: Path, name: str) -> Path:
     return root / "config" / "regions" / f"{name}.yaml"
-
-
-def region_profile_path(root: Path, name: str) -> Path:
-    return root / "config" / "rendering_profiles" / f"{name}.yaml"
 
 
 def _load_yaml(path: Path) -> dict:
@@ -85,29 +81,6 @@ def write_region_config(
     with config_path.open("w", encoding="utf-8") as handle:
         yaml.safe_dump(region_config, handle, sort_keys=False, allow_unicode=True)
     return config_path
-
-
-def write_rendering_profile(
-    *,
-    root: Path,
-    name: str,
-    template: str = PROFILE_TEMPLATE,
-) -> Path:
-    template_path = root / "config" / "rendering_profiles" / f"{template}.yaml"
-    if not template_path.exists():
-        raise FileNotFoundError(f"Profile template not found: {template_path}")
-
-    profile_path = region_profile_path(root, name)
-    content = template_path.read_text(encoding="utf-8")
-    content = re.sub(
-        rf"^profile:\s*{re.escape(template)}\s*$",
-        f"profile: {name}",
-        content,
-        count=1,
-        flags=re.MULTILINE,
-    )
-    profile_path.write_text(content, encoding="utf-8")
-    return profile_path
 
 
 def prepare_region(
@@ -196,11 +169,10 @@ def prepare_region(
         bbox=bbox,
         base_config_path=base_config_path,
     )
-    profile_path = write_rendering_profile(root=root, name=name)
     result["config"] = str(config_path)
-    result["profile"] = str(profile_path)
+    result["profile"] = DEFAULT_PROFILE
     result["run_command"] = (
         f"winter-ortho run-all --tile-id {tile_id_for_name(name)} "
-        f"--profile {name} --config {config_path.relative_to(root)}"
+        f"--profile {DEFAULT_PROFILE} --config {config_path.relative_to(root)}"
     )
     return result

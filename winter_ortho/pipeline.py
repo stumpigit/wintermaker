@@ -13,7 +13,7 @@ from winter_ortho.qa.geometry_checks import run_qa
 from winter_ortho.rendering.compose import render_winter_tile
 from winter_ortho.snow_model.rules import compute_snow_layers
 from winter_ortho.snow_model.surface import compute_snow_surface
-from winter_ortho.utils.config import load_class_rules, load_config, load_profile
+from winter_ortho.utils.config import DEFAULT_PROFILE, load_class_rules, load_config, load_profile
 from winter_ortho.utils.paths import tile_paths
 from winter_ortho.utils.progress import PipelineProgress
 from winter_ortho.utils.raster import read_raster
@@ -152,7 +152,7 @@ def run_terrain(
 
 def run_snow_surface(
     tile_id: str,
-    profile_name: str = "davos",
+    profile_name: str = DEFAULT_PROFILE,
     config_path: str | None = None,
     *,
     snow_height_m: float | None = None,
@@ -177,7 +177,7 @@ def run_snow_surface(
 
 def run_snow(
     tile_id: str,
-    profile_name: str = "davos",
+    profile_name: str = DEFAULT_PROFILE,
     config_path: str | None = None,
     *,
     snow_height_m: float | None = None,
@@ -219,7 +219,7 @@ def run_snow(
 
 def run_render(
     tile_id: str,
-    profile_name: str = "davos",
+    profile_name: str = DEFAULT_PROFILE,
     config_path: str | None = None,
     *,
     progress: PipelineProgress | None = None,
@@ -293,7 +293,7 @@ def _run_pipeline_steps(
 
 def run_all(
     tile_id: str,
-    profile_name: str = "davos",
+    profile_name: str = DEFAULT_PROFILE,
     config_path: str | None = None,
     *,
     progress: PipelineProgress | None = None,
@@ -318,7 +318,7 @@ def run_all(
 
 def run_all_snow(
     tile_id: str,
-    profile_name: str = "davos",
+    profile_name: str = DEFAULT_PROFILE,
     config_path: str | None = None,
     *,
     progress: PipelineProgress | None = None,

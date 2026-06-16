@@ -7,6 +7,8 @@ import yaml
 
 from winter_ortho.utils.paths import get_project_root, resolve_config_path
 
+DEFAULT_PROFILE = "default"
+
 
 def _load_yaml(path: Path) -> dict[str, Any]:
     with path.open(encoding="utf-8") as handle:
