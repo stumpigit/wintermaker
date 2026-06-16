@@ -504,6 +504,7 @@ def test_blend_hillshade_prefers_snow_surface_on_flat_snowy_pixels() -> None:
         fraction,
         slope,
         max_accumulation_slope_deg=30.0,
+        cover_weight=np.ones((8, 8), dtype=np.float32),
     )
     assert np.allclose(blended, 0.8)
 
@@ -514,5 +515,17 @@ def test_blend_hillshade_prefers_snow_surface_on_flat_snowy_pixels() -> None:
         fraction,
         slope_steep,
         max_accumulation_slope_deg=30.0,
+        cover_weight=np.zeros((8, 8), dtype=np.float32),
     )
     assert np.allclose(blended_steep, 0.2)
+
+    cover_mid = np.full((8, 8), 0.5, dtype=np.float32)
+    blended_mid = blend_hillshade_for_snow(
+        base,
+        snow,
+        fraction,
+        slope,
+        max_accumulation_slope_deg=30.0,
+        cover_weight=cover_mid,
+    )
+    assert np.allclose(blended_mid, 0.5)

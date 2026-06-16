@@ -5,7 +5,7 @@ from typing import Any
 import numpy as np
 
 from winter_ortho.features.terrain import compute_generalized_hillshade, hillshade_config_for_render
-from winter_ortho.snow_model.surface import resolve_snow_surface_config
+from winter_ortho.snow_model.surface import compute_snow_cover_weight, resolve_snow_surface_config
 from winter_ortho.preprocessing.tiling import get_tile_grid
 from winter_ortho.rendering.base import to_float_rgb, to_uint8_rgb
 from winter_ortho.rendering.buildings import render_buildings
@@ -47,12 +47,18 @@ def blend_hillshade_for_snow(
     *,
     max_accumulation_slope_deg: float,
     accumulation_mask: np.ndarray | None = None,
+    cover_weight: np.ndarray | None = None,
+    deck_weight_floor: float = 0.0,
 ) -> np.ndarray:
-    if accumulation_mask is None:
-        accumulation = slope < max_accumulation_slope_deg
+    if cover_weight is not None:
+        deck = np.clip(cover_weight, 0.0, 1.0).astype(np.float32)
+        if deck_weight_floor > 0.0:
+            deck = np.maximum(deck, deck_weight_floor)
+    elif accumulation_mask is not None:
+        deck = accumulation_mask.astype(np.float32)
     else:
-        accumulation = accumulation_mask > 0
-    weight = np.clip(snow_fraction, 0.0, 1.0) * accumulation.astype(np.float32)
+        deck = (slope < max_accumulation_slope_deg).astype(np.float32)
+    weight = np.clip(snow_fraction, 0.0, 1.0) * deck
     return (
         hillshade_base * (1.0 - weight) + hillshade_snow * weight
     ).astype(np.float32)
@@ -105,6 +111,13 @@ def render_winter_tile(
             resolution_m,
             render_hillshade_cfg,
         )
+        cover_weight = snow_surface.get("snow_cover_weight")
+        if cover_weight is None:
+            cover_weight = compute_snow_cover_weight(
+                terrain["slope"],
+                surface_cfg,
+                resolution_m=resolution_m,
+            )
         render_hillshade = blend_hillshade_for_snow(
             hill_generalized,
             hill_snow,
@@ -112,6 +125,10 @@ def render_winter_tile(
             terrain["slope"],
             max_accumulation_slope_deg=surface_cfg["max_accumulation_slope_deg"],
             accumulation_mask=snow_surface.get("accumulation_mask"),
+            cover_weight=cover_weight,
+            deck_weight_floor=float(
+                profile.get("open_land", {}).get("hillshade_deck_floor", 0.0)
+            ),
         )
     cast_shadow = summer_cast_shadow_field(
         summer_rgb,

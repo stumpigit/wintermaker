@@ -85,7 +85,7 @@ Erzeugt `snow_surface_dem.tif` und `snow_thickness_m.tif`. Aktiviert dickengest�
 | **Typ** | Zahl (Grad) |
 | **Standard** | `max_accumulation_slope_deg` |
 | **Bereich** | > `leveling_full_slope_deg` |
-| **Wirkung** | Ab dieser Neigung keine Nivellierung mehr — Schneeoberfläche folgt dem Sommer-DEM. Dazwischen (`leveling_full_slope_deg` … `leveling_end_slope_deg`) linearer Übergang. Typisch `35` bei `max_accumulation_slope_deg: 35`. |
+| **Wirkung** | Ab dieser Neigung keine Nivellierung mehr — Schneeoberfläche folgt dem Sommer-DEM. Dazwischen (`leveling_full_slope_deg` … `leveling_end_slope_deg`) weicher Übergang. Für sanftere Übergänge zu Steilhängen etwas **über** `max_accumulation_slope_deg` setzen (z. B. `40`). |
 
 ### `cover_transition_sigma_m`
 
@@ -271,7 +271,7 @@ Offenes Gelände (Wiesen, Weiden, alpine Matten).
 |---|---|
 | **Typ** | Meter |
 | **Standard** | `0.5` |
-| **Wirkung** | Ab dieser absoluten Schneehöhe gilt volle Schneedecke (`snow_fraction` max) auf offenem Land. Steilhang- und Vorsprungs-Penalties (Sommergrün) sind dann aus. In Akkumulationszonen zählt die nominale Blanket-Dicke (`blanket_thickness_m`), auf Steilflanken die geometrische Höhe über dem Sommer-DEM. Darunter: Interpolation zwischen min/max und aktive Penalties. |
+| **Wirkung** | Ab dieser absoluten Schneehöhe gilt volle Schneedecke (`snow_fraction` max) auf offenem Land. Steilhang- und Vorsprungs-Penalties (Sommergrün) sind dann aus. In Akkumulationszonen zählt die nominale Blanket-Dicke (`blanket_thickness_m`), auf Steilflanken die geometrische Höhe. In Übergangsbändern wird zusätzlich `blanket × snow_cover_weight` berücksichtigt, damit der DEM-Blend nicht als freiliegendes Gelände interpretiert wird. |
 
 ### `slope_snow_strength`
 
@@ -288,6 +288,14 @@ Offenes Gelände (Wiesen, Weiden, alpine Matten).
 | **Typ** | Zahl (0–1) |
 | **Standard** | *(nicht gesetzt)* |
 | **Wirkung** | Untergrenze der Schneefraktion auf Steilhängen. Verhindert Sommergrün-Durchscheinen, erlaubt aber weniger Schnee als auf flachem Gelände. Unterdrückt `slope_texture_visibility` (kein Grün-Blend). Typisch `0.90`–`0.94`. |
+
+### `slope_min_snow_softness`
+
+| | |
+|---|---|
+| **Typ** | Zahl (0–1) |
+| **Standard** | `0.04` |
+| **Wirkung** | Breite des weichen Übergangs zur Untergrenze (`slope_min_snow_fraction`). Höher = sanftere Abstufung statt harter Kante. |
 
 ### `slope_snow_start_deg`, `slope_snow_end_deg`, `slope_min_snow_scale`
 

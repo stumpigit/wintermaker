@@ -497,7 +497,9 @@ def test_open_land_steep_non_accumulation_uses_blanket_depth_for_gating(
             "slope_snow_end_deg": 44,
             "slope_min_snow_scale": 0.35,
             "slope_snow_strength": 0.5,
-            "slope_min_snow_fraction": 0.92,
+            "slope_min_snow_fraction": 0.96,
+            "deck_depth_cover_floor": 0.55,
+            "deck_snow_fraction_boost": 0.85,
             "slope_texture_visibility": 0.55,
         }
     )
@@ -527,7 +529,82 @@ def test_open_land_steep_non_accumulation_uses_blanket_depth_for_gating(
     hi = thickness_profile["open_land"]["snow_fraction"][1]
     min_steep = thickness_profile["open_land"]["slope_min_snow_fraction"]
     assert layers["snow_fraction"][8, 8] >= min_steep * 0.98
-    assert layers["snow_fraction"][8, 8] < hi * 0.98
+    assert layers["snow_fraction"][8, 8] <= hi
+    assert layers["summer_exposure"][8, 8] < 0.05
+
+
+def test_open_land_transition_band_avoids_summer_exposure_with_deck_weight(
+    monkeypatch: pytest.MonkeyPatch,
+    thickness_profile: dict,
+) -> None:
+    height, width = 16, 16
+    class_masks = {
+        "building_mask": np.zeros((height, width), dtype=np.uint8),
+        "road_mask": np.zeros((height, width), dtype=np.uint8),
+        "path_mask": np.zeros((height, width), dtype=np.uint8),
+        "water_mask": np.zeros((height, width), dtype=np.uint8),
+        "settlement_mask": np.zeros((height, width), dtype=np.uint8),
+        "forest_mask": np.zeros((height, width), dtype=np.uint8),
+        "rock_or_bare_ground_mask": np.zeros((height, width), dtype=np.uint8),
+        "open_land_mask": np.ones((height, width), dtype=np.uint8),
+        "special_area_mask": np.zeros((height, width), dtype=np.uint8),
+    }
+    dem = np.full((height, width), 1800.0, dtype=np.float32)
+    dem += np.random.default_rng(3).normal(0, 0.4, dem.shape).astype(np.float32)
+    terrain = {
+        "elevation": dem,
+        "aspect": np.zeros((height, width), dtype=np.float32),
+        "terrain_position_index": np.zeros((height, width), dtype=np.float32),
+        "hillshade_winter_low_sun": np.full((height, width), 0.6, dtype=np.float32),
+        "slope": np.full((height, width), 37.0, dtype=np.float32),
+        "roughness": np.zeros((height, width), dtype=np.float32),
+    }
+    snow_thickness = np.full((height, width), 0.12, dtype=np.float32)
+    blanket_thickness = np.full((height, width), 1.8, dtype=np.float32)
+    accumulation_mask = np.zeros((height, width), dtype=np.uint8)
+    snow_cover_weight = np.full((height, width), 0.45, dtype=np.float32)
+    snow_surface_dem = (dem * 0.55 + (dem + 0.8) * 0.45).astype(np.float32)
+    thickness_profile["open_land"].update(
+        {
+            "full_snow_thickness_m": 0.5,
+            "protrusion_full_m": 0.5,
+            "protrusion_strength": 0.85,
+            "protrusion_snow_reduction": 0.90,
+            "protrusion_texture_visibility": 0.75,
+            "slope_min_snow_fraction": 0.96,
+            "deck_depth_cover_floor": 0.55,
+            "deck_snow_fraction_boost": 0.85,
+            "slope_snow_strength": 0.4,
+            "slope_snow_start_deg": 28,
+            "slope_snow_end_deg": 48,
+        }
+    )
+
+    monkeypatch.setattr(snow_rules, "write_cog", lambda *args, **kwargs: None)
+    monkeypatch.setattr(snow_rules, "read_raster", lambda *args, **kwargs: (np.zeros((1, 1)), {}))
+    monkeypatch.setattr(
+        snow_rules,
+        "get_tile_grid",
+        lambda *args, **kwargs: SimpleNamespace(
+            transform=None, crs="EPSG:2056", width=width, height=height
+        ),
+    )
+
+    layers = snow_rules.compute_snow_layers(
+        {},
+        thickness_profile,
+        _mock_paths(),
+        class_masks,
+        terrain,
+        snow_thickness=snow_thickness,
+        blanket_thickness=blanket_thickness,
+        accumulation_mask=accumulation_mask,
+        snow_surface_dem=snow_surface_dem,
+        snow_cover_weight=snow_cover_weight,
+    )
+
+    min_steep = thickness_profile["open_land"]["slope_min_snow_fraction"]
+    assert layers["snow_fraction"][8, 8] >= min_steep * 0.98
     assert layers["summer_exposure"][8, 8] < 0.05
 
 

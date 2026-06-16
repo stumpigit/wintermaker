@@ -7,7 +7,7 @@ snow_surface:
   accumulation_edge_feather_m: 45
   # Slope-dependent DEM leveling: fill small depressions on gentle slopes, raw DEM on cliffs.
   leveling_full_slope_deg: 30
-  leveling_end_slope_deg: 35
+  leveling_end_slope_deg: 40
   smoothing_sigma_m: 90
   micro_suppression: 0.75
   depression_fill: 0.85
@@ -16,7 +16,7 @@ snow_surface:
   surface_post_smooth_sigma_m: 18
   surface_macro_smooth_sigma_m: 20
   accumulation_blend_sigma_m: 15
-  cover_transition_sigma_m: 30
+  cover_transition_sigma_m: 42
   valley_deposition_factor: 0.15
   ridge_scour_factor: 0.10
   ridge_micro_retention: 0.12
@@ -35,12 +35,16 @@ open_land:
   snow_fraction: [0.97, 1.0]
   full_snow_thickness_m: 0.5
   # Steilhang: reduzierte Schneefraktion, aber deckend (kein Sommergrün). 0 = aus.
-  slope_snow_strength: 0.4
-  slope_snow_start_deg: 32
-  slope_snow_end_deg: 44
+  slope_snow_strength: 0.28
+  slope_snow_start_deg: 28
+  slope_snow_end_deg: 48
   slope_min_snow_scale: 0.35
-  slope_min_snow_fraction: 0.92
-  slope_texture_visibility: 0.15
+  slope_min_snow_fraction: 0.96
+  slope_min_snow_softness: 0.05
+  slope_texture_visibility: 0.0
+  deck_depth_cover_floor: 0.55
+  deck_snow_fraction_boost: 0.85
+  hillshade_deck_floor: 0.72
   protrusion_full_m: 0.5
   protrusion_strength: 0.85
   protrusion_snow_reduction: 0.90

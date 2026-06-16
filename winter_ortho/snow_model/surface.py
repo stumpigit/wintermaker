@@ -132,7 +132,27 @@ def compute_snow_surface_arrays(
         "snow_thickness_m": snow_thickness,
         "blanket_thickness_m": thickness.astype(np.float32),
         "accumulation_mask": accumulation.astype(np.uint8),
+        "snow_cover_weight": cover.astype(np.float32),
     }
+
+
+def compute_snow_cover_weight(
+    slope: np.ndarray,
+    cfg: dict[str, float],
+    *,
+    resolution_m: float,
+) -> np.ndarray:
+    """Smooth snow-deck weight (0–1) for hillshade and surface blending."""
+    slope_work = _smooth_slope_for_weight(slope, cfg, resolution_m)
+    blend_weight = _resolve_blend_weight(
+        slope,
+        cfg,
+        resolution_m,
+        slope_work=slope_work,
+    )
+    leveling_weight = _slope_leveling_weight(slope_work, cfg)
+    cover = (blend_weight * leveling_weight).astype(np.float32)
+    return _smooth_cover_weight(cover, cfg, resolution_m)
 
 
 def _smooth_cover_weight(
@@ -416,7 +436,7 @@ def compute_snow_surface(
     if progress:
         progress.substep("Writing snow_surface_dem.tif and snow_thickness_m.tif")
 
-    for name in ("snow_surface_dem", "snow_thickness_m", "blanket_thickness_m"):
+    for name in ("snow_surface_dem", "snow_thickness_m", "blanket_thickness_m", "snow_cover_weight"):
         write_cog(
             str(getattr(paths, name)),
             arrays[name],

@@ -6,7 +6,7 @@ import numpy as np
 from scipy import ndimage
 
 from winter_ortho.preprocessing.tiling import get_tile_grid
-from winter_ortho.snow_model.surface import resolve_snow_surface_config
+from winter_ortho.snow_model.surface import compute_snow_cover_weight, resolve_snow_surface_config
 from winter_ortho.utils.paths import TilePaths
 from winter_ortho.utils.progress import PipelineProgress
 from winter_ortho.utils.raster import read_raster, write_cog
@@ -35,6 +35,7 @@ def compute_snow_layers(
     blanket_thickness: np.ndarray | None = None,
     accumulation_mask: np.ndarray | None = None,
     snow_surface_dem: np.ndarray | None = None,
+    snow_cover_weight: np.ndarray | None = None,
     progress: PipelineProgress | None = None,
 ) -> dict[str, np.ndarray]:
     grid = get_tile_grid(config, paths.tile_id)
@@ -94,6 +95,13 @@ def compute_snow_layers(
 
     open_cfg = profile.get("open_land", {})
     slope = terrain["slope"]
+    resolution_m = float(config.get("resolution_m", 2.0))
+    if use_thickness and snow_cover_weight is None:
+        snow_cover_weight = compute_snow_cover_weight(
+            slope,
+            resolve_snow_surface_config(profile),
+            resolution_m=resolution_m,
+        )
     if use_thickness and snow_surface_dem is not None:
         if float(open_cfg.get("slope_snow_strength", 1.0)) > 0.0:
             slope_snow_scale = _open_land_slope_snow_scale(slope, open_cfg)
@@ -174,6 +182,7 @@ def compute_snow_layers(
         snow_thickness_m=snow_thickness,
         blanket_thickness_m=blanket_thickness,
         accumulation_mask=accumulation_mask,
+        snow_cover_weight=snow_cover_weight,
         slope_snow_scale=slope_snow_scale,
         protrusion_fraction=protrusion_fraction,
     ))
@@ -426,6 +435,7 @@ def _apply_open_land(
     snow_thickness_m: np.ndarray | None = None,
     blanket_thickness_m: np.ndarray | None = None,
     accumulation_mask: np.ndarray | None = None,
+    snow_cover_weight: np.ndarray | None = None,
     slope_snow_scale: np.ndarray | None = None,
     protrusion_fraction: np.ndarray | None = None,
 ) -> None:
@@ -437,6 +447,8 @@ def _apply_open_land(
         snow_thickness_m=snow_thickness_m,
         blanket_thickness_m=blanket_thickness_m,
         accumulation_mask=accumulation_mask,
+        snow_cover_weight=snow_cover_weight,
+        deck_depth_cover_floor=float(open_cfg.get("deck_depth_cover_floor", 0.0)),
     )
     if depth_source is not None:
         depth = depth_source
@@ -457,17 +469,31 @@ def _apply_open_land(
         min_steep = open_cfg.get("slope_min_snow_fraction")
         if min_steep is not None:
             penalty = steep_factor * slope_strength
-            cover = cover * (1.0 - penalty)
-            cover = np.maximum(cover, float(min_steep))
+            reduced = cover * (1.0 - penalty)
+            floor_band = float(open_cfg.get("slope_min_snow_softness", 0.04))
+            effective_min = np.full(int(mask.sum()), float(min_steep), dtype=np.float32)
+            if snow_cover_weight is not None:
+                deck = np.clip(snow_cover_weight[mask], 0.0, 1.0)
+                boost = float(open_cfg.get("deck_snow_fraction_boost", 0.75))
+                effective_min = np.minimum(
+                    float(min_steep)
+                    + (hi - float(min_steep)) * deck * boost,
+                    hi,
+                ).astype(np.float32)
+            cover = _soft_floor(reduced, effective_min, floor_band)
         else:
             penalty = steep_factor * thin_gate * slope_strength
             cover = cover * (1.0 - penalty)
 
-    if protrusion_fraction is not None:
+    if protrusion_fraction is not None and open_cfg.get("slope_min_snow_fraction") is None:
         prot_red = float(open_cfg.get("protrusion_snow_reduction", 0.9))
         prot_strength = float(open_cfg.get("protrusion_strength", 1.0))
+        prot_frac = protrusion_fraction[mask]
+        if snow_cover_weight is not None:
+            deck = np.clip(snow_cover_weight[mask], 0.0, 1.0)
+            prot_frac = prot_frac * np.clip((deck - 0.12) / 0.88, 0.0, 1.0)
         cover = cover * (
-            1.0 - protrusion_fraction[mask] * prot_red * prot_strength * thin_gate
+            1.0 - prot_frac * prot_red * prot_strength * thin_gate
         )
 
     snow_fraction[mask] = np.clip(cover, 0.0, hi)
@@ -483,7 +509,7 @@ def _apply_open_land(
             exposure_vals,
             steep_factor * steep_vis * thin_gate * slope_strength,
         )
-    if protrusion_fraction is not None:
+    if protrusion_fraction is not None and open_cfg.get("slope_min_snow_fraction") is None:
         prot_vis = float(open_cfg.get("protrusion_texture_visibility", 0.85))
         prot_strength = float(open_cfg.get("protrusion_strength", 1.0))
         exposure_vals = np.maximum(
@@ -509,16 +535,37 @@ def _effective_snow_depth(
     return snow_thickness.astype(np.float32)
 
 
+def _soft_floor(values: np.ndarray, floor: np.ndarray | float, band: float) -> np.ndarray:
+    """Ease values up to a floor instead of a hard clip."""
+    floor_arr = (
+        np.broadcast_to(floor, values.shape).astype(np.float64)
+        if np.ndim(floor) != 0
+        else float(floor)
+    )
+    delta = floor_arr - values.astype(np.float64)
+    t = np.clip(delta / max(band, 1e-6), 0.0, 1.0)
+    smooth = t * t * (3.0 - 2.0 * t)
+    return (values * (1.0 - smooth) + floor_arr * smooth).astype(np.float32)
+
+
 def _open_land_depth_for_gating(
     mask: np.ndarray,
     *,
     snow_thickness_m: np.ndarray | None,
     blanket_thickness_m: np.ndarray | None,
     accumulation_mask: np.ndarray | None,
+    snow_cover_weight: np.ndarray | None = None,
+    deck_depth_cover_floor: float = 0.0,
 ) -> np.ndarray | None:
     depth = _effective_snow_depth(snow_thickness_m, blanket_thickness_m, accumulation_mask)
     if depth is None:
         return None
+    if blanket_thickness_m is not None and snow_cover_weight is not None:
+        deck_cover = snow_cover_weight.astype(np.float32)
+        if deck_depth_cover_floor > 0.0:
+            deck_cover = np.maximum(deck_cover, deck_depth_cover_floor)
+        deck_depth = (blanket_thickness_m * deck_cover).astype(np.float32)
+        depth = np.maximum(depth, deck_depth).astype(np.float32)
     return depth[mask]
 
 

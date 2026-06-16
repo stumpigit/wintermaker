@@ -86,6 +86,10 @@ class TilePaths:
         return self.intermediate_dir / "accumulation_mask.tif"
 
     @property
+    def snow_cover_weight(self) -> Path:
+        return self.intermediate_dir / "snow_cover_weight.tif"
+
+    @property
     def snow_fraction(self) -> Path:
         return self.output_dir / f"{self.tile_id}_snow_fraction.tif"
 
