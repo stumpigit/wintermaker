@@ -453,8 +453,15 @@ def _apply_open_land(
 
     if slope_snow_scale is not None:
         slope_strength = float(open_cfg.get("slope_snow_strength", 1.0))
-        penalty = (1.0 - slope_snow_scale[mask]) * thin_gate * slope_strength
-        cover = cover * (1.0 - penalty)
+        steep_factor = (1.0 - slope_snow_scale[mask]).astype(np.float32)
+        min_steep = open_cfg.get("slope_min_snow_fraction")
+        if min_steep is not None:
+            penalty = steep_factor * slope_strength
+            cover = cover * (1.0 - penalty)
+            cover = np.maximum(cover, float(min_steep))
+        else:
+            penalty = steep_factor * thin_gate * slope_strength
+            cover = cover * (1.0 - penalty)
 
     if protrusion_fraction is not None:
         prot_red = float(open_cfg.get("protrusion_snow_reduction", 0.9))
@@ -468,12 +475,13 @@ def _apply_open_land(
     snow_texture_strength[mask] = open_cfg["snow_texture_strength"]
 
     exposure_vals = np.zeros(int(mask.sum()), dtype=np.float32)
-    if slope_snow_scale is not None:
+    if slope_snow_scale is not None and open_cfg.get("slope_min_snow_fraction") is None:
         steep_vis = float(open_cfg.get("slope_texture_visibility", 0.7))
         slope_strength = float(open_cfg.get("slope_snow_strength", 1.0))
+        steep_factor = (1.0 - slope_snow_scale[mask]).astype(np.float32)
         exposure_vals = np.maximum(
             exposure_vals,
-            (1.0 - slope_snow_scale[mask]) * steep_vis * thin_gate * slope_strength,
+            steep_factor * steep_vis * thin_gate * slope_strength,
         )
     if protrusion_fraction is not None:
         prot_vis = float(open_cfg.get("protrusion_texture_visibility", 0.85))

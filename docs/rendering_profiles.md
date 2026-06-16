@@ -271,7 +271,7 @@ Offenes Gelände (Wiesen, Weiden, alpine Matten).
 |---|---|
 | **Typ** | Meter |
 | **Standard** | `0.5` |
-| **Wirkung** | Ab dieser absoluten Schneehöhe gilt volle Schneedecke (`snow_fraction` max) auf offenem Land. Steilhang- und Vorsprungs-Penalties (Sommergrün) sind dann aus. In Akkumulationszonen zählt die nominale Blanket-Dicke (`blanket_thickness_m`), nicht die geometrische Höhe über dem Sommer-DEM — damit verdeckt eine 0,8-m-Decke auch eingeebnete Felsvorsprünge. Darunter: Interpolation zwischen min/max und aktive Penalties. |
+| **Wirkung** | Ab dieser absoluten Schneehöhe gilt volle Schneedecke (`snow_fraction` max) auf offenem Land. Steilhang- und Vorsprungs-Penalties (Sommergrün) sind dann aus. In Akkumulationszonen zählt die nominale Blanket-Dicke (`blanket_thickness_m`), auf Steilflanken die geometrische Höhe über dem Sommer-DEM. Darunter: Interpolation zwischen min/max und aktive Penalties. |
 
 ### `slope_snow_strength`
 
@@ -279,7 +279,15 @@ Offenes Gelände (Wiesen, Weiden, alpine Matten).
 |---|---|
 | **Typ** | Zahl (0–1) |
 | **Standard** | `1.0` |
-| **Wirkung** | Master-Regler für Hangreduktion. `0` schaltet Steilhang-Logik vollständig aus. Wirkt nur unter `full_snow_thickness_m` — ab dieser Dicke bleibt auch Steilhang weiss. |
+| **Wirkung** | Master-Regler für Hangreduktion. `0` schaltet Steilhang-Logik vollständig aus. Mit `slope_min_snow_fraction`: wirkt unabhängig von `full_snow_thickness_m` (gedeckelte Reduktion). Ohne: nur unter `full_snow_thickness_m`. |
+
+### `slope_min_snow_fraction`
+
+| | |
+|---|---|
+| **Typ** | Zahl (0–1) |
+| **Standard** | *(nicht gesetzt)* |
+| **Wirkung** | Untergrenze der Schneefraktion auf Steilhängen. Verhindert Sommergrün-Durchscheinen, erlaubt aber weniger Schnee als auf flachem Gelände. Unterdrückt `slope_texture_visibility` (kein Grün-Blend). Typisch `0.90`–`0.94`. |
 
 ### `slope_snow_start_deg`, `slope_snow_end_deg`, `slope_min_snow_scale`
 

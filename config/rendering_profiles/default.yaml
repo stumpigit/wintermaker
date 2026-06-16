@@ -1,7 +1,7 @@
 profile: default
 snow_surface:
   base_snow_height_m: 2.0
-  snow_amount: 0.8
+  snow_amount: 0.9
   max_accumulation_slope_deg: 35
   accumulation_transition_deg: 20
   accumulation_edge_feather_m: 45
@@ -34,12 +34,13 @@ aspect:
 open_land:
   snow_fraction: [0.97, 1.0]
   full_snow_thickness_m: 0.5
-  # Steilhang / Vorsprünge nur unter full_snow_thickness_m (Sommergrün). 0 = aus.
-  slope_snow_strength: 0.5
+  # Steilhang: reduzierte Schneefraktion, aber deckend (kein Sommergrün). 0 = aus.
+  slope_snow_strength: 0.4
   slope_snow_start_deg: 32
   slope_snow_end_deg: 44
   slope_min_snow_scale: 0.35
-  slope_texture_visibility: 0.55
+  slope_min_snow_fraction: 0.92
+  slope_texture_visibility: 0.15
   protrusion_full_m: 0.5
   protrusion_strength: 0.85
   protrusion_snow_reduction: 0.90
