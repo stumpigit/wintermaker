@@ -21,7 +21,7 @@ def render_rock(
     snow_flattening: float = 0.35,
     gentle_slope_max_deg: float = 28.0,
     steep_slope_min_deg: float = 42.0,
-    gentle_snow_boost: float = 0.2,
+    gentle_render_boost: float = 0.2,
     summer_shade_weight: float = 0.55,
     hillshade_shade_weight: float = 0.45,
     shadow_boost: float = 1.45,
@@ -62,7 +62,7 @@ def render_rock(
         1,
     )
     gentle_factor = 1.0 - slope_t
-    alpha = snow_fraction * (1.0 - rock_visibility) + gentle_factor * gentle_snow_boost
+    alpha = snow_fraction * (1.0 - rock_visibility) + gentle_factor * gentle_render_boost
     alpha = np.clip(alpha, 0.0, 1.0)
 
     snowy = blend(summer_rock, snow_layer, alpha[..., np.newaxis])

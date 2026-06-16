@@ -106,3 +106,35 @@ def test_snow_fraction_in_valid_range(synthetic_tile: dict) -> None:
     valid = snow != -9999.0
     assert snow[valid].min() >= 0.0
     assert snow[valid].max() <= 1.0
+
+
+def test_rock_gentle_render_boost_increases_snow_cover() -> None:
+    from winter_ortho.rendering.rock import render_rock
+
+    shape = (16, 16)
+    summer = np.zeros((*shape, 3), dtype=np.float32)
+    summer[..., 0] = 0.35
+    summer[..., 1] = 0.32
+    summer[..., 2] = 0.30
+    mask = np.ones(shape, dtype=np.uint8)
+    snow_fraction = np.full(shape, 0.5, dtype=np.float32)
+    rock_visibility = np.zeros(shape, dtype=np.float32)
+    slope = np.full(shape, 10.0, dtype=np.float32)  # gentle
+    hillshade = np.full(shape, 0.55, dtype=np.float32)
+    snow_color = np.array([0.96, 0.98, 0.99], dtype=np.float32)
+    common = dict(
+        rgb=summer,
+        mask=mask,
+        snow_fraction=snow_fraction,
+        rock_visibility=rock_visibility,
+        slope=slope,
+        snow_color=snow_color,
+        hillshade=hillshade,
+        hillshade_strength=0.0,
+        summer_preservation=0.0,
+    )
+
+    low = render_rock(**common, gentle_render_boost=0.0)
+    high = render_rock(**common, gentle_render_boost=0.5)
+
+    assert high.mean() > low.mean()
