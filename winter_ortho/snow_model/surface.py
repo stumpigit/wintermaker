@@ -100,9 +100,9 @@ def compute_snow_surface_arrays(
             sigma=thickness_sigma_px,
         ).astype(np.float32)
 
-    # Blanket on a leveled ground reference, tapered toward steep faces.
+    # Blanket on a leveled ground reference; edge taper is applied once via cover.
     on_accumulation = slope_work < max_slope
-    snow_layer = (thickness * blend_weight).astype(np.float32)
+    snow_layer = thickness.astype(np.float32)
     snow_surface = (ground_reference + snow_layer).astype(np.float32)
     smooth_weight = _surface_smooth_weight(blend_weight, cfg, leveling_weight)
     snow_surface = _apply_surface_smoothing(
@@ -115,9 +115,13 @@ def compute_snow_surface_arrays(
     leveled_blanket = snow_surface.astype(np.float32)
     cover = (blend_weight * leveling_weight).astype(np.float32)
     cover = _smooth_cover_weight(cover, cfg, resolution_m)
-    snow_surface = (
-        leveled_blanket * cover + dem.astype(np.float32) * (1.0 - cover)
-    ).astype(np.float32)
+    snow_surface = _composite_snow_surface(
+        dem.astype(np.float32),
+        leveled_blanket,
+        ground_reference,
+        thickness,
+        cover,
+    )
     snow_thickness = _finalize_snow_thickness(
         dem,
         snow_surface,
@@ -153,6 +157,20 @@ def compute_snow_cover_weight(
     leveling_weight = _slope_leveling_weight(slope_work, cfg)
     cover = (blend_weight * leveling_weight).astype(np.float32)
     return _smooth_cover_weight(cover, cfg, resolution_m)
+
+
+def _composite_snow_surface(
+    dem: np.ndarray,
+    leveled_blanket: np.ndarray,
+    ground_reference: np.ndarray,
+    thickness: np.ndarray,
+    cover: np.ndarray,
+) -> np.ndarray:
+    """Blend snow deck to bare terrain without edge depressions."""
+    deck_offset = (leveled_blanket - ground_reference).astype(np.float32)
+    tapered = dem + np.maximum(thickness, deck_offset) * cover
+    filled = leveled_blanket * cover + dem * (1.0 - cover)
+    return np.maximum(tapered, filled).astype(np.float32)
 
 
 def _smooth_cover_weight(

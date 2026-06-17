@@ -1,17 +1,17 @@
 profile: default
 snow_surface:
-  base_snow_height_m: 2.0
-  snow_amount: 0.9
+  base_snow_height_m: 4.0 # was 2.0
+  snow_amount: 0.7
   max_accumulation_slope_deg: 35
-  accumulation_transition_deg: 20
-  accumulation_edge_feather_m: 45
+  accumulation_transition_deg: 30
+  accumulation_edge_feather_m: 5
   # Slope-dependent DEM leveling: fill small depressions on gentle slopes, raw DEM on cliffs.
   leveling_full_slope_deg: 30
   leveling_end_slope_deg: 40
   smoothing_sigma_m: 90
   micro_suppression: 0.75
   depression_fill: 0.85
-  tpi_smoothing_sigma_m: 70
+  tpi_smoothing_sigma_m: 1 # was 70
   thickness_smoothing_sigma_m: 35
   surface_post_smooth_sigma_m: 18
   surface_macro_smooth_sigma_m: 20

@@ -1,0 +1,38 @@
+crs: EPSG:2056
+resolution_m: 1
+paths:
+  intermediate_root: data/intermediate/tiles
+  output_root: data/output/tiles
+  orthophoto: data/raw/regions/finsteraarhorn/orthophoto/summer_rgb.tif
+  dem: data/raw/regions/finsteraarhorn/dem/dem.tif
+  tlm3d:
+    buildings: data/raw/regions/finsteraarhorn/tlm3d/buildings.gpkg
+    roads: data/raw/regions/finsteraarhorn/tlm3d/roads.gpkg
+    paths: data/raw/regions/finsteraarhorn/tlm3d/paths.gpkg
+    water: data/raw/regions/finsteraarhorn/tlm3d/water.gpkg
+    forest: data/raw/regions/finsteraarhorn/tlm3d/forest.gpkg
+    settlement: data/raw/regions/finsteraarhorn/tlm3d/settlement.gpkg
+    landcover: data/raw/regions/finsteraarhorn/tlm3d/landcover.gpkg
+tiles:
+  finsteraarhorn_001:
+    bbox:
+    - 2651000.0
+    - 1152000.0
+    - 2654000.0
+    - 1156000.0
+harmonize:
+  orthophoto_resampling: bilinear
+  dem_resampling: bilinear
+terrain:
+  generalized_hillshade_sigma_m: 55
+  hillshade:
+    azimuth: 45
+    altitude: 32
+  tpi_radius_px: 5
+  roughness_radius_px: 3
+qa:
+  building_edge_tolerance: 0.35
+  road_brightness_min: 0.25
+  water_boundary_tolerance: 0.15
+  forest_boundary_tolerance: 0.3
+  hallucination_tolerance: 0.4

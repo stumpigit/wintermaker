@@ -448,9 +448,60 @@ def test_leveled_blanket_buries_micro_protrusions_on_gentle_terrain() -> None:
     )
 
     assert (result["snow_thickness_m"] >= 0).all()
-    buried = result["snow_surface_dem"] < dem
-    assert buried.any()
+    assert (result["snow_surface_dem"] >= dem).all()
     assert float(np.std(result["snow_surface_dem"])) < float(np.std(dem)) * 0.85
+
+
+def test_ridge_transition_follows_dem_without_edge_dip() -> None:
+    """Snow deck should taper above summer relief, not dip before a rising ridge."""
+    width = 160
+    dem = np.full((width, width), 2000.0, dtype=np.float32)
+    for col in range(width):
+        if col > width // 2 - 20:
+            dem[:, col] += (col - (width // 2 - 20)) * 0.25
+    dem[:, : width // 2] += np.sin(np.linspace(0, 24 * np.pi, width // 2)) * 5.0
+
+    slope = np.full((width, width), 12.0, dtype=np.float32)
+    slope[:, width // 2 + 5 :] = 50.0
+    tpi = np.zeros((width, width), dtype=np.float32)
+    aspect = np.zeros((width, width), dtype=np.float32)
+
+    cfg = resolve_snow_surface_config(
+        {
+            "snow_surface": {
+                "base_snow_height_m": 2.0,
+                "snow_amount": 0.7,
+                "max_accumulation_slope_deg": 35.0,
+                "accumulation_transition_deg": 20.0,
+                "accumulation_edge_feather_m": 45.0,
+                "leveling_full_slope_deg": 30.0,
+                "leveling_end_slope_deg": 40.0,
+                "smoothing_sigma_m": 90.0,
+                "micro_suppression": 0.75,
+                "cover_transition_sigma_m": 42.0,
+            }
+        }
+    )
+    result = compute_snow_surface_arrays(
+        dem, slope, tpi, aspect, cfg, resolution_m=2.0
+    )
+    snow = result["snow_surface_dem"]
+    cover = result["snow_cover_weight"]
+    row = width // 2
+
+    transition = (cover[row] > 0.15) & (cover[row] < 0.95)
+    assert transition.any()
+    offsets = snow[row, transition] - dem[row, transition]
+    assert offsets.min() > 0.05
+
+    rising = transition & (np.gradient(dem[row]) > 0.02)
+    if rising.any():
+        rising_cols = np.where(rising)[0]
+        for idx in range(1, len(rising_cols)):
+            col = rising_cols[idx]
+            prev_col = rising_cols[idx - 1]
+            if dem[row, col] >= dem[row, prev_col] - 0.05:
+                assert snow[row, col] >= snow[row, prev_col] - 0.15
 
 
 def test_cliffs_follow_dem_when_leveling_inactive() -> None:
