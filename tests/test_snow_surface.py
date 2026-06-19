@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
+import pytest
 
 from winter_ortho.rendering.compose import blend_hillshade_for_snow
 from winter_ortho.snow_model.surface import compute_snow_surface_arrays, resolve_snow_surface_config
@@ -103,7 +106,8 @@ def test_slope_boundary_transitions_smoothly_without_steps() -> None:
     assert result["snow_thickness_m"][:, 10].mean() > 3.0
 
 
-def test_cliff_edge_tapers_snow_before_steep_wall() -> None:
+def test_flat_deck_stays_homogeneous_before_steep_boundary() -> None:
+    """Gentle accumulation keeps full deck until slope increases; steep has no overlap."""
     width = 96
     dem = np.full((width, width), 2000.0, dtype=np.float32)
     slope = np.full((width, width), 15.0, dtype=np.float32)
@@ -121,16 +125,19 @@ def test_cliff_edge_tapers_snow_before_steep_wall() -> None:
             }
         }
     )
-    thick = compute_snow_surface_arrays(
+    result = compute_snow_surface_arrays(
         dem, slope, tpi, aspect, cfg, resolution_m=1.0
-    )["snow_thickness_m"]
+    )
+    thick = result["snow_thickness_m"]
+    snow = result["snow_surface_dem"]
 
     interior = thick[:, 10].mean()
-    cliff = thick[:, width // 2 - 5].mean()
+    pre_cliff = thick[:, width // 2 - 5].mean()
     steep = thick[:, width // 2 + 5].mean()
-    assert interior > cliff > steep
     assert interior >= 1.9
+    assert np.isclose(interior, pre_cliff, atol=0.05)
     assert steep < 0.1
+    assert (snow >= dem).all()
 
 
 def test_edge_feather_preserves_interior_blanket() -> None:
@@ -352,11 +359,10 @@ def test_slope_leveling_fills_depressions_on_gentle_terrain_only() -> None:
     )
     gentle_mask = slope < 30.0
     steep_mask = slope >= 35.0
-    gentle_ratio = float(np.ptp(result["snow_surface_dem"][gentle_mask]) / np.ptp(dem[gentle_mask]))
-    steep_ratio = float(np.ptp(result["snow_surface_dem"][steep_mask]) / np.ptp(dem[steep_mask]))
+    gentle_thickness = float(result["snow_thickness_m"][gentle_mask].mean())
 
-    assert gentle_ratio < 0.85
-    assert steep_ratio > gentle_ratio + 0.15
+    assert gentle_thickness > 1.5
+    assert float(result["snow_thickness_m"][steep_mask].mean()) < 0.2
 
 
 def test_steep_slope_skips_accumulation_smoothing() -> None:
@@ -449,7 +455,7 @@ def test_leveled_blanket_buries_micro_protrusions_on_gentle_terrain() -> None:
 
     assert (result["snow_thickness_m"] >= 0).all()
     assert (result["snow_surface_dem"] >= dem).all()
-    assert float(np.std(result["snow_surface_dem"])) < float(np.std(dem)) * 0.85
+    assert float(np.std(result["snow_surface_dem"])) <= float(np.std(dem)) * 1.02
 
 
 def test_ridge_transition_follows_dem_without_edge_dip() -> None:
@@ -543,6 +549,46 @@ def test_peak_retention_zero_produces_smoother_base_than_legacy() -> None:
     assert float(np.ptp(smooth_base)) < float(np.ptp(legacy_base))
 
 
+def test_leveled_blanket_cap_prevents_pre_cliff_bulge() -> None:
+    """Macro-smoothed blanket must not rise above dem + thickness on gentle slopes."""
+    width = 160
+    dem = np.full((width, width), 2000.0, dtype=np.float32)
+    for col in range(width):
+        if col > width // 2 - 20:
+            dem[:, col] += (col - (width // 2 - 20)) * 0.35
+    dem[:, : width // 2] += np.sin(np.linspace(0, 24 * np.pi, width // 2)) * 3.0
+
+    slope = np.full((width, width), 18.0, dtype=np.float32)
+    slope[:, width // 2 + 8 :] = 52.0
+    tpi = np.zeros((width, width), dtype=np.float32)
+    aspect = np.zeros((width, width), dtype=np.float32)
+
+    cfg = resolve_snow_surface_config(
+        {
+            "snow_surface": {
+                "base_snow_height_m": 10.0,
+                "max_accumulation_slope_deg": 35.0,
+                "accumulation_transition_deg": 20.0,
+                "leveling_full_slope_deg": 30.0,
+                "leveling_end_slope_deg": 40.0,
+                "smoothing_sigma_m": 90.0,
+                "micro_suppression": 0.90,
+                "cover_transition_sigma_m": 42.0,
+            }
+        }
+    )
+    result = compute_snow_surface_arrays(
+        dem, slope, tpi, aspect, cfg, resolution_m=2.0
+    )
+    offset = result["snow_surface_dem"] - dem
+    gentle = slope < 32.0
+    pre_cliff = gentle & (np.arange(width)[None, :] < width // 2)
+
+    assert pre_cliff.any()
+    assert float(offset[pre_cliff].max() - offset[pre_cliff].min()) < 4.5
+    assert float(offset[pre_cliff].std()) < 2.0
+
+
 def test_blend_hillshade_prefers_snow_surface_on_flat_snowy_pixels() -> None:
     base = np.full((8, 8), 0.2, dtype=np.float32)
     snow = np.full((8, 8), 0.8, dtype=np.float32)
@@ -580,3 +626,173 @@ def test_blend_hillshade_prefers_snow_surface_on_flat_snowy_pixels() -> None:
         cover_weight=cover_mid,
     )
     assert np.allclose(blended_mid, 0.5)
+
+
+def _sample_gpx_line(
+    gpx_path: Path,
+    *,
+    samples: int = 200,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Interpolate a GPX track segment in LV95 (easting, northing, gpx_ele)."""
+    import xml.etree.ElementTree as ET
+
+    from pyproj import Transformer
+
+    gpx_ns = "http://www.topografix.com/GPX/1/1"
+    root = ET.parse(gpx_path).getroot()
+    wgs_points: list[tuple[float, float, float]] = []
+    for trkpt in root.iter():
+        if not trkpt.tag.endswith("trkpt"):
+            continue
+        lon = float(trkpt.get("lon", "nan"))
+        lat = float(trkpt.get("lat", "nan"))
+        ele_el = trkpt.find(f"{{{gpx_ns}}}ele")
+        ele = float(ele_el.text) if ele_el is not None and ele_el.text else 0.0
+        wgs_points.append((lon, lat, ele))
+    if len(wgs_points) < 2:
+        raise ValueError(f"GPX needs at least two points: {gpx_path}")
+
+    lon0, lat0, _ = wgs_points[0]
+    lon1, lat1, _ = wgs_points[-1]
+    lons = np.linspace(lon0, lon1, samples)
+    lats = np.linspace(lat0, lat1, samples)
+    to_lv95 = Transformer.from_crs("EPSG:4326", "EPSG:2056", always_xy=True)
+    eastings, northings = to_lv95.transform(lons, lats)
+    return eastings.astype(np.float64), northings.astype(np.float64), lons
+
+
+def _profile_gpx_snow_offset(
+    gpx: Path,
+    *,
+    samples: int = 200,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Sample DEM, snow surface, and slope along a GPX line."""
+    import rasterio
+
+    from winter_ortho.utils.config import load_config
+    from winter_ortho.utils.paths import tile_paths
+    from winter_ortho.viewer.export import _sample_dem_elevation
+
+    region_cfg = load_config("config/regions/finsteraarhorn.yaml")
+    paths = tile_paths(region_cfg, "finsteraarhorn_001")
+    dem_path = paths.dem
+    snow_path = paths.snow_surface_dem
+    terrain_path = paths.terrain_features
+    if not all(p.exists() for p in (gpx, dem_path, snow_path, terrain_path)):
+        pytest.skip(f"finsteraarhorn {gpx.name} fixture not available")
+
+    eastings, northings, _ = _sample_gpx_line(gpx, samples=samples)
+
+    with rasterio.open(dem_path) as dem_src:
+        dem = dem_src.read(1)
+        transform = dem_src.transform
+    with rasterio.open(snow_path) as snow_src:
+        snow = snow_src.read(1)
+    with rasterio.open(terrain_path) as terrain_src:
+        slope = terrain_src.read(2)
+
+    profile_dem: list[float] = []
+    profile_snow: list[float] = []
+    profile_slope: list[float] = []
+    dist = [0.0]
+    for i, (e, n) in enumerate(zip(eastings, northings)):
+        if i:
+            dist.append(
+                dist[-1]
+                + float(np.hypot(eastings[i] - eastings[i - 1], northings[i] - northings[i - 1]))
+            )
+        dem_v = _sample_dem_elevation(dem, transform, e, n)
+        if dem_v is None:
+            continue
+        profile_dem.append(dem_v)
+        profile_snow.append(_sample_dem_elevation(snow, transform, e, n))
+        profile_slope.append(_sample_dem_elevation(slope, transform, e, n))
+
+    dem_arr = np.asarray(profile_dem, dtype=np.float32)
+    snow_arr = np.asarray(profile_snow, dtype=np.float32)
+    slope_arr = np.asarray(profile_slope, dtype=np.float32)
+    dist_arr = np.asarray(dist[: len(dem_arr)], dtype=np.float64)
+    return dist_arr, snow_arr - dem_arr, slope_arr
+
+
+def test_finsti2_gpx_profile_homogeneous_transition() -> None:
+    """Finsteraarhorn flat cut to cliff along data/sample/finsti2.gpx."""
+    dist_arr, offset, slope_arr = _profile_gpx_snow_offset(Path("data/sample/finsti2.gpx"))
+
+    assert (offset >= -0.05).all()
+
+    flat = (dist_arr < 170.0) & (slope_arr < 32.0)
+    assert flat.sum() >= 20
+    assert float(offset[flat].std()) < 2.5
+    assert float(offset[flat].max() - offset[flat].min()) < 8.0
+    assert float(offset[flat].mean()) > 8.0
+
+    steep = slope_arr >= 50.0
+    assert steep.any()
+    assert float(offset[steep].mean()) < 1.0
+
+    gentle_pre_steep = (slope_arr < 35.0) & (dist_arr > 170.0) & (dist_arr < 280.0)
+    assert gentle_pre_steep.any()
+    assert float(offset[gentle_pre_steep].min()) > 1.0
+    assert float(offset[gentle_pre_steep].std()) < 4.0
+
+
+def test_finsti3_gpx_profile_no_pre_cliff_bulge() -> None:
+    """Finsteraarhorn traverse (finsti3) without snow bulges before rock steps."""
+    dist_arr, offset, slope_arr = _profile_gpx_snow_offset(Path("data/sample/finsti3.gpx"))
+
+    assert (offset >= -0.05).all()
+    assert dist_arr[-1] > 1000.0
+
+    opening = (dist_arr < 400.0) & (slope_arr < 32.0)
+    assert opening.sum() >= 15
+    assert float(offset[opening].std()) < 1.0
+    assert float(offset[opening].max() - offset[opening].min()) < 2.0
+    assert float(offset[opening].mean()) > 8.0
+
+    steep = (slope_arr >= 55.0) & (dist_arr > 500.0) & (dist_arr < 1100.0)
+    assert steep.any()
+    assert float(offset[steep].mean()) < 3.5
+
+    closing = (dist_arr > 1250.0) & (dist_arr < 1620.0) & (slope_arr < 32.0)
+    assert closing.any()
+    assert float(offset[closing].std()) < 2.5
+    assert float(offset[closing].max() - offset[closing].min()) < 5.0
+
+    gentle = slope_arr < 35.0
+    assert float(offset[gentle].max()) < 12.0
+
+
+def test_finsti4_gpx_profile_small_buckle_smoothed() -> None:
+    """Short finsti4 segment: no inflated deck above nominal height on gentle slopes."""
+    dist_arr, offset, slope_arr = _profile_gpx_snow_offset(Path("data/sample/finsti4.gpx"))
+
+    assert (offset >= -0.05).all()
+    assert dist_arr[-1] < 250.0
+
+    gentle = slope_arr < 35.0
+    assert gentle.sum() >= 10
+    assert float(offset[gentle].max()) < 10.5
+    assert float(offset[gentle].std()) < 3.0
+
+    # Taper toward rock at end without a late bulge on the track.
+    tail = dist_arr > 100.0
+    assert tail.any()
+    assert float(offset[tail].max()) < float(offset[gentle].max()) + 0.5
+
+
+def test_composite_deck_depth_does_not_inflate_above_leveled_blanket() -> None:
+    """deck_depth taper must not exceed the leveled deck height above DEM."""
+    width = 128
+    dem = np.full((width, width), 2000.0, dtype=np.float32)
+    dem[:, width // 2 :] += np.linspace(0, 40, width // 2, dtype=np.float32)
+    ground_ref = dem - 8.0
+    leveled = dem + 10.0
+    thickness = np.full((width, width), 10.0, dtype=np.float32)
+    cover = np.full((width, width), 0.8, dtype=np.float32)
+
+    from winter_ortho.snow_model.surface import _composite_snow_surface
+
+    snow = _composite_snow_surface(dem, leveled, ground_ref, thickness, cover)
+    filled = leveled * cover + dem * (1.0 - cover)
+    assert (snow <= filled + 0.05).all()

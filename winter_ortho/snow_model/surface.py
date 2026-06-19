@@ -112,22 +112,41 @@ def compute_snow_surface_arrays(
         resolution_m,
         leveling_weight=leveling_weight,
     )
-    leveled_blanket = snow_surface.astype(np.float32)
-    cover = (blend_weight * leveling_weight).astype(np.float32)
-    cover = _smooth_cover_weight(cover, cfg, resolution_m)
+    leveled_blanket = _cap_leveled_blanket(
+        snow_surface.astype(np.float32),
+        dem,
+        thickness,
+        leveling_weight,
+    )
+    slope_weight = _resolve_slope_weight(
+        slope,
+        cfg,
+        resolution_m,
+        slope_work=slope_work,
+    )
+    geometry_cover = _smooth_cover_weight(
+        (slope_weight * leveling_weight).astype(np.float32),
+        cfg,
+        resolution_m,
+    )
+    render_cover = _smooth_cover_weight(
+        (blend_weight * leveling_weight).astype(np.float32),
+        cfg,
+        resolution_m,
+    )
     snow_surface = _composite_snow_surface(
         dem.astype(np.float32),
         leveled_blanket,
         ground_reference,
         thickness,
-        cover,
+        geometry_cover,
     )
     snow_thickness = _finalize_snow_thickness(
         dem,
         snow_surface,
         leveled_blanket,
         thickness,
-        cover,
+        geometry_cover,
     )
 
     accumulation = on_accumulation
@@ -136,7 +155,7 @@ def compute_snow_surface_arrays(
         "snow_thickness_m": snow_thickness,
         "blanket_thickness_m": thickness.astype(np.float32),
         "accumulation_mask": accumulation.astype(np.uint8),
-        "snow_cover_weight": cover.astype(np.float32),
+        "snow_cover_weight": render_cover.astype(np.float32),
     }
 
 
@@ -159,6 +178,18 @@ def compute_snow_cover_weight(
     return _smooth_cover_weight(cover, cfg, resolution_m)
 
 
+def _cap_leveled_blanket(
+    leveled_blanket: np.ndarray,
+    dem: np.ndarray,
+    thickness: np.ndarray,
+    leveling_weight: np.ndarray,
+) -> np.ndarray:
+    nominal = (dem + thickness).astype(np.float32)
+    active = leveling_weight > 0.05
+    excess = leveled_blanket > nominal
+    return np.where(active & excess, nominal, leveled_blanket).astype(np.float32)
+
+
 def _composite_snow_surface(
     dem: np.ndarray,
     leveled_blanket: np.ndarray,
@@ -168,7 +199,9 @@ def _composite_snow_surface(
 ) -> np.ndarray:
     """Blend snow deck to bare terrain without edge depressions."""
     deck_offset = (leveled_blanket - ground_reference).astype(np.float32)
-    tapered = dem + np.maximum(thickness, deck_offset) * cover
+    ceiling = np.maximum(leveled_blanket - dem, thickness).astype(np.float32)
+    deck_depth = np.minimum(np.maximum(thickness, deck_offset), ceiling)
+    tapered = dem + deck_depth * cover
     filled = leveled_blanket * cover + dem * (1.0 - cover)
     return np.maximum(tapered, filled).astype(np.float32)
 
