@@ -6,28 +6,36 @@ integration into web APIs (e.g., FastAPI + Celery) or other orchestration layers
 
 from __future__ import annotations
 
-import json
-import tempfile
+import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Callable
-from dataclasses import dataclass, field
 
-from winter_ortho.pipeline import (
-    run_harmonize,
-    run_masks,
-    run_terrain,
-    run_snow_surface,
-    run_snow,
-    run_render,
-    run_qa_step,
-    PIPELINE_STEPS,
-    PIPELINE_STEPS_SNOW,
-)
+logger = logging.getLogger(__name__)
+
 from winter_ortho.data_prep.region import prepare_region as _prepare_region
-from winter_ortho.utils.config import DEFAULT_PROFILE, load_config, load_profile
+from winter_ortho.utils.config import DEFAULT_PROFILE
 from winter_ortho.utils.progress import PipelineProgress
-from winter_ortho.utils.paths import tile_paths
 from winter_ortho.viewer.export import export_tile_viewer_data
+
+
+def _pipeline_imports():
+    """Lazy import pipeline dependencies.
+
+    The full pipeline (masks / vector clipping) pulls in optional heavy deps like
+    geopandas. Viewer export should still work without them, so we import the
+    pipeline only when a caller actually runs it.
+    """
+
+    from winter_ortho.pipeline import (  # type: ignore
+        _run_pipeline_steps,
+        run_all,
+        run_all_snow,
+        PIPELINE_STEPS,
+        PIPELINE_STEPS_SNOW,
+    )
+
+    return _run_pipeline_steps, run_all, run_all_snow, PIPELINE_STEPS, PIPELINE_STEPS_SNOW
 
 
 class PipelineTask:
@@ -76,7 +84,10 @@ class LibraryProgress(PipelineProgress):
 
     def __init__(self, on_step: Optional[Callable[[str, int, int], None]] = None):
         self.on_step = on_step
-        super().__init__()
+        self._current = 0
+        self._total = 0
+        self._title = ""
+        super().__init__(verbose=False)
 
     def advance(self, title: str) -> None:
         """Called at the start of each pipeline step."""
@@ -85,13 +96,37 @@ class LibraryProgress(PipelineProgress):
 
     def step_begin(self, current: int, total: int, title: str, detail: str = "") -> None:
         """Called when a step begins."""
+        self._current = current
+        self._total = total
+        self._title = title
+        msg = f"[{current}/{total}] {title}"
+        if detail:
+            msg += f" — {detail}"
+        logger.info(msg)
         if self.on_step:
             self.on_step(title, current, total)
 
-    def step_end(self, title: str, summary: str) -> None:
+    def step_end(self, title: str, summary: str = "") -> None:
         """Called when a step completes."""
-        if self.on_step:
-            self.on_step(title, 0, 0)
+        msg = f"✓ {title}"
+        if summary:
+            msg += f" — {summary}"
+        logger.info(msg)
+
+    def substep(self, message: str) -> None:
+        logger.info("  → %s", message)
+        if self.on_step and self._total > 0:
+            self.on_step(f"→ {message}", self._current, self._total)
+
+    def info(self, message: str) -> None:
+        logger.info("  i %s", message)
+        if self.on_step and self._total > 0:
+            self.on_step(f"i {message}", self._current, self._total)
+
+    def warn(self, message: str) -> None:
+        logger.warning("  ! %s", message)
+        if self.on_step and self._total > 0:
+            self.on_step(f"! {message}", self._current, self._total)
 
 
 @dataclass
@@ -137,38 +172,69 @@ def run_pipeline_task(
     Returns:
         Dictionary with all step results keyed by step name
     """
+    # Import full pipeline only when used (may require geopandas, etc.)
+    (
+        _run_pipeline_steps,
+        run_all,
+        run_all_snow,
+        PIPELINE_STEPS,
+        PIPELINE_STEPS_SNOW,
+    ) = _pipeline_imports()
+    from winter_ortho.pipeline import (  # type: ignore
+        run_harmonize,
+        run_masks,
+        run_terrain,
+        run_snow_surface,
+        run_snow,
+        run_render,
+        run_qa_step,
+    )
+
     if steps is None:
         steps = [s[0] for s in PIPELINE_STEPS]
 
-    step_map = {
-        "harmonize": lambda: run_harmonize(tile_id, config_path),
-        "masks": lambda: run_masks(tile_id, config_path),
-        "terrain": lambda: run_terrain(tile_id, config_path),
-        "snow_surface": lambda: run_snow_surface(tile_id, profile_name, config_path),
-        "snow": lambda: run_snow(tile_id, profile_name, config_path),
-        "render": lambda: run_render(tile_id, profile_name, config_path),
-        "qa": lambda: run_qa_step(tile_id, config_path),
-    }
-
-    # Filter to requested steps
-    available_steps = {s[0]: (s[1], step_map[s[0]]) for s in PIPELINE_STEPS}
-    requested = [(k, available_steps[k][0], available_steps[k][1]) for k in steps if k in available_steps]
-
-    config = load_config(config_path)
-    paths = tile_paths(config, tile_id)
+    if steps == [s[0] for s in PIPELINE_STEPS]:
+        return run_all(
+            tile_id,
+            profile_name,
+            config_path,
+            progress=LibraryProgress(on_step=on_step),
+        )
+    if steps == [s[0] for s in PIPELINE_STEPS_SNOW]:
+        return run_all_snow(
+            tile_id,
+            profile_name,
+            config_path,
+            progress=LibraryProgress(on_step=on_step),
+        )
 
     progress = LibraryProgress(on_step=on_step)
-    results: Dict[str, Any] = {"tile_id": tile_id, "profile": profile_name}
+    step_defs = {key: (title, detail) for key, title, detail in PIPELINE_STEPS}
+    step_fns = {
+        "harmonize": lambda: run_harmonize(tile_id, config_path, progress=progress),
+        "masks": lambda: run_masks(tile_id, config_path, progress=progress),
+        "terrain": lambda: run_terrain(tile_id, config_path, progress=progress),
+        "snow_surface": lambda: run_snow_surface(
+            tile_id, profile_name, config_path, progress=progress
+        ),
+        "snow": lambda: run_snow(tile_id, profile_name, config_path, progress=progress),
+        "render": lambda: run_render(tile_id, profile_name, config_path, progress=progress),
+        "qa": lambda: run_qa_step(tile_id, config_path, progress=progress),
+    }
 
-    for step_key, step_title, step_fn in requested:
-        try:
-            result = step_fn()
-            results[step_key] = result
-        except Exception as e:
-            results[step_key] = {"error": str(e)}
-            raise
+    selected_steps = [
+        (key, step_defs[key][0], step_defs[key][1]) for key in steps if key in step_defs
+    ]
+    selected_fns = [step_fns[key] for key in steps if key in step_fns]
 
-    return results
+    return _run_pipeline_steps(
+        tile_id=tile_id,
+        profile_name=profile_name,
+        config_path=config_path,
+        steps=selected_steps,
+        step_fns=selected_fns,
+        progress=progress,
+    )
 
 
 def run_all_async(
@@ -193,11 +259,29 @@ def run_all_async(
     Returns:
         Final result dictionary (same as run_all but without progress)
     """
-    return run_pipeline_task(
-        tile_id=tile_id,
-        profile_name=profile_name,
-        config_path=config_path,
-        on_step=on_step,
+    _, run_all, _, _, _ = _pipeline_imports()
+    return run_all(
+        tile_id,
+        profile_name,
+        config_path,
+        progress=LibraryProgress(on_step=on_step),
+    )
+
+
+def run_snow_async(
+    *,
+    tile_id: str,
+    profile_name: str = DEFAULT_PROFILE,
+    config_path: Optional[str] = None,
+    on_step: Optional[Callable[[str, int, int], None]] = None,
+) -> Dict[str, Any]:
+    """Run snow-only pipeline (snow_surface → snow → render → qa)."""
+    _, _, run_all_snow, _, _ = _pipeline_imports()
+    return run_all_snow(
+        tile_id,
+        profile_name,
+        config_path,
+        progress=LibraryProgress(on_step=on_step),
     )
 
 
@@ -266,6 +350,8 @@ def export_viewer_async(
     config_path: Optional[str] = None,
     stride: int = 2,
     max_texture_dim: int = 16384,
+    gpx_paths: Optional[list[str]] = None,
+    auto_gpx: bool = True,
 ) -> ViewerExportResult:
     """Export 3D viewer data asynchronously.
 
@@ -274,6 +360,8 @@ def export_viewer_async(
         config_path: Path to config file
         stride: Mesh decimation stride
         max_texture_dim: Max orthophoto texture edge length in pixels
+        gpx_paths: Optional list of GPX file paths to include in the viewer
+        auto_gpx: Discover sample GPX files when gpx_paths is empty
 
     Returns:
         ViewerExportResult with mesh and texture info
@@ -283,6 +371,8 @@ def export_viewer_async(
         config_path=str(config_path) if config_path else None,
         stride=stride,
         max_texture_dim=max_texture_dim,
+        gpx_paths=gpx_paths,
+        auto_gpx=auto_gpx,
     )
 
     return ViewerExportResult(
@@ -298,4 +388,4 @@ def export_viewer_async(
 
 
 # Convenience aliases for common operations
-run_snow_pipeline = run_all_async
+run_snow_pipeline = run_snow_async

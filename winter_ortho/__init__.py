@@ -13,6 +13,7 @@ __version__ = "0.1.0"
 
 from winter_ortho.library import (
     run_all_async,
+    run_snow_async,
     run_snow_pipeline,
     prepare_region_async,
     export_viewer_async,
@@ -24,6 +25,7 @@ from winter_ortho.library import (
 __all__ = [
     "__version__",
     "run_all_async",
+    "run_snow_async",
     "run_snow_pipeline",
     "prepare_region_async",
     "export_viewer_async",
