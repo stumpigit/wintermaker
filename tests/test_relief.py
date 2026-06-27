@@ -13,6 +13,39 @@ def test_desaturate_reduces_green_dominance():
     assert abs(out[..., 0].mean() - out[..., 2].mean()) < 0.05
 
 
+def test_winter_relief_attenuates_summer_texture_on_deep_snow():
+    rgb = np.full((8, 8, 3), 0.8, dtype=np.float32)
+    hillshade = np.full((8, 8), 0.5, dtype=np.float32)
+    aspect = np.full((8, 8), 0.0, dtype=np.float32)
+    snow_color = np.array([0.95, 0.97, 0.99], dtype=np.float32)
+    summer = np.zeros((8, 8, 3), dtype=np.float32)
+    summer[..., 0] = np.linspace(0.2, 0.9, 64, dtype=np.float32).reshape(8, 8)
+    summer[..., 1] = summer[..., 0]
+    summer[..., 2] = summer[..., 0]
+    common = dict(
+        hillshade=hillshade,
+        aspect=aspect,
+        snow_color=snow_color,
+        summer_rgb=summer,
+        hillshade_strength=0.22,
+        summer_relief_weight=0.30,
+        min_snow=0.30,
+        snow_tint_strength=0.0,
+    )
+
+    deep = apply_winter_relief(
+        rgb,
+        snow_fraction=np.full((8, 8), 0.96, dtype=np.float32),
+        **common,
+    )
+    shallow = apply_winter_relief(
+        rgb,
+        snow_fraction=np.full((8, 8), 0.55, dtype=np.float32),
+        **common,
+    )
+    assert np.ptp(luminance(deep)) < np.ptp(luminance(shallow))
+
+
 def test_winter_relief_darkens_shade_and_brightens_sun():
     rgb = np.full((8, 8, 3), 0.8, dtype=np.float32)
     hillshade = np.linspace(0.2, 0.9, 64, dtype=np.float32).reshape(8, 8)

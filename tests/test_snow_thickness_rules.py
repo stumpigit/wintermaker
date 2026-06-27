@@ -608,6 +608,31 @@ def test_open_land_transition_band_avoids_summer_exposure_with_deck_weight(
     assert layers["summer_exposure"][8, 8] < 0.05
 
 
+def test_open_land_depth_gating_respects_zero_cover_and_geometric_cap() -> None:
+    snow_thickness = np.array(
+        [[0.0, 0.15, 4.0], [0.0, 1.5, 9.5]],
+        dtype=np.float32,
+    )
+    blanket = np.full((2, 3), 10.0, dtype=np.float32)
+    cover = np.array([[0.0, 0.17, 1.0], [0.0, 0.55, 1.0]], dtype=np.float32)
+    mask = np.ones((2, 3), dtype=bool)
+
+    depth = snow_rules._open_land_depth_for_gating(
+        mask,
+        snow_thickness_m=snow_thickness,
+        blanket_thickness_m=blanket,
+        accumulation_mask=None,
+        snow_cover_weight=cover,
+        deck_depth_cover_floor=0.72,
+    )
+
+    assert depth.shape == (6,)
+    assert depth[0] == 0.0
+    assert depth[1] == pytest.approx(0.15, abs=0.01)
+    assert depth[2] == pytest.approx(4.0, abs=0.05)
+    assert depth[4] == pytest.approx(1.5, abs=0.05)
+
+
 def test_open_land_blanket_thickness_gates_protrusion_when_geometric_is_zero(
     monkeypatch: pytest.MonkeyPatch,
     thickness_profile: dict,
@@ -734,6 +759,66 @@ def test_rock_blanket_thickness_yields_high_snow_fraction_on_protrusion(
     max_snow = thickness_profile["rock"]["max_snow_fraction"]
     assert layers["snow_fraction"][8, 8] >= max_snow * 0.90
     assert layers["rock_visibility"][8, 8] < 0.25
+
+
+def test_steep_rock_keeps_visibility_under_full_blanket(
+    monkeypatch: pytest.MonkeyPatch,
+    thickness_profile: dict,
+) -> None:
+    height, width = 16, 16
+    class_masks = {
+        "building_mask": np.zeros((height, width), dtype=np.uint8),
+        "road_mask": np.zeros((height, width), dtype=np.uint8),
+        "path_mask": np.zeros((height, width), dtype=np.uint8),
+        "water_mask": np.zeros((height, width), dtype=np.uint8),
+        "settlement_mask": np.zeros((height, width), dtype=np.uint8),
+        "forest_mask": np.zeros((height, width), dtype=np.uint8),
+        "rock_or_bare_ground_mask": np.ones((height, width), dtype=np.uint8),
+        "open_land_mask": np.zeros((height, width), dtype=np.uint8),
+        "special_area_mask": np.zeros((height, width), dtype=np.uint8),
+    }
+    terrain = {
+        "elevation": np.full((height, width), 1800.0, dtype=np.float32),
+        "aspect": np.zeros((height, width), dtype=np.float32),
+        "terrain_position_index": np.zeros((height, width), dtype=np.float32),
+        "hillshade_winter_low_sun": np.full((height, width), 0.6, dtype=np.float32),
+        "slope": np.full((height, width), 52.0, dtype=np.float32),
+        "roughness": np.full((height, width), 1.0, dtype=np.float32),
+    }
+    blanket_thickness = np.full((height, width), 8.0, dtype=np.float32)
+    accumulation_mask = np.ones((height, width), dtype=np.uint8)
+    thickness_profile["rock"].update(
+        {
+            "full_snow_thickness_m": 8.0,
+            "max_snow_fraction": 0.94,
+            "thickness_burial_factor": 0.85,
+            "gentle_slope_max_deg": 32,
+            "steep_slope_min_deg": 46,
+        }
+    )
+
+    monkeypatch.setattr(snow_rules, "write_cog", lambda *args, **kwargs: None)
+    monkeypatch.setattr(snow_rules, "read_raster", lambda *args, **kwargs: (np.zeros((1, 1)), {}))
+    monkeypatch.setattr(
+        snow_rules,
+        "get_tile_grid",
+        lambda *args, **kwargs: SimpleNamespace(
+            transform=None, crs="EPSG:2056", width=width, height=height
+        ),
+    )
+
+    layers = snow_rules.compute_snow_layers(
+        {"resolution_m": 1.0},
+        thickness_profile,
+        _mock_paths(),
+        class_masks,
+        terrain,
+        snow_thickness=blanket_thickness,
+        blanket_thickness=blanket_thickness,
+        accumulation_mask=accumulation_mask,
+    )
+
+    assert layers["rock_visibility"][8, 8] > 0.35
 
 
 def _mock_paths() -> SimpleNamespace:

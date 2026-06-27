@@ -380,7 +380,11 @@ def _apply_rock(
         rock_vis = rock_vis * (1.0 - burial)
         rock_vis = np.maximum(rock_vis, min_vis * (1.0 - 0.75 * burial))
         if thick_enough is not None:
-            rock_vis = np.where(thick_enough, rock_vis * 0.25, rock_vis)
+            rock_vis = np.where(
+                thick_enough,
+                rock_vis * (0.22 + 0.78 * slope_t),
+                rock_vis,
+            )
 
     rock_visibility[mask] = rock_vis[mask]
 
@@ -557,15 +561,43 @@ def _open_land_depth_for_gating(
     snow_cover_weight: np.ndarray | None = None,
     deck_depth_cover_floor: float = 0.0,
 ) -> np.ndarray | None:
-    depth = _effective_snow_depth(snow_thickness_m, blanket_thickness_m, accumulation_mask)
+    if snow_thickness_m is not None:
+        depth = snow_thickness_m.astype(np.float32)
+    else:
+        depth = _effective_snow_depth(snow_thickness_m, blanket_thickness_m, accumulation_mask)
     if depth is None:
         return None
     if blanket_thickness_m is not None and snow_cover_weight is not None:
         deck_cover = snow_cover_weight.astype(np.float32)
         if deck_depth_cover_floor > 0.0:
-            deck_cover = np.maximum(deck_cover, deck_depth_cover_floor)
+            deck_cover = np.where(
+                deck_cover > 0.05,
+                np.maximum(deck_cover, deck_depth_cover_floor),
+                deck_cover,
+            )
         deck_depth = (blanket_thickness_m * deck_cover).astype(np.float32)
-        depth = np.maximum(depth, deck_depth).astype(np.float32)
+        if snow_thickness_m is not None:
+            deck_depth = np.where(
+                snow_thickness_m > 0.05,
+                np.minimum(deck_depth, snow_thickness_m),
+                deck_depth,
+            ).astype(np.float32)
+        depth = np.where(
+            deck_cover > 0.05,
+            np.maximum(depth, deck_depth),
+            depth,
+        ).astype(np.float32)
+    elif (
+        blanket_thickness_m is not None
+        and accumulation_mask is not None
+        and snow_thickness_m is not None
+    ):
+        on_accum = accumulation_mask > 0
+        depth = np.where(
+            on_accum,
+            np.maximum(depth, blanket_thickness_m),
+            depth,
+        ).astype(np.float32)
     return depth[mask]
 
 

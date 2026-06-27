@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+from scipy import ndimage
 
 
 def luminance(rgb: np.ndarray) -> np.ndarray:
@@ -172,8 +173,20 @@ def apply_winter_relief(
     )
     relief = hill_relief + aspect_relief
     if summer_rgb is not None and summer_relief_weight > 0:
-        summer_field = summer_luminance_map(summer_rgb) - 0.5
-        relief = relief * (1.0 - summer_relief_weight) + summer_field * 2.0 * hillshade_strength * summer_relief_weight
+        summer_map = summer_luminance_map(summer_rgb)
+        summer_smooth = ndimage.gaussian_filter(
+            summer_map.astype(np.float64),
+            sigma=5.0,
+        ).astype(np.float32)
+        smooth_mix = np.clip(snow_weight * 0.90, 0.0, 0.90)
+        summer_map = summer_map * (1.0 - smooth_mix) + summer_smooth * smooth_mix
+        summer_field = summer_map - 0.5
+        # Thick snow should read as a smooth deck, not inherit summer micro-texture.
+        effective_summer = float(summer_relief_weight) * (1.0 - snow_weight * 0.88)
+        relief = (
+            relief * (1.0 - effective_summer)
+            + summer_field * 2.0 * hillshade_strength * effective_summer
+        )
     if cast_shadow is not None and cast_shadow_relief_weight > 0:
         relief = relief - cast_shadow * cast_shadow_relief_weight * hillshade_strength * 2.2
     relief = relief * weight

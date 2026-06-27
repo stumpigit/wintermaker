@@ -1,39 +1,42 @@
-profile: sentischhorn
+profile: finsteraarhorn
 snow_surface:
-  base_snow_height_m: 8.0
+  base_snow_height_m: 10.0
   snow_amount: 1.0
   max_accumulation_slope_deg: 35
-  accumulation_transition_deg: 34
-  accumulation_edge_feather_m: 52
+  accumulation_transition_deg: 12
+  accumulation_edge_feather_m: 34
+  geometry_cover_use_slope_weight: 0.0
+  surface_cover_geometry_power: 2.31
   leveling_full_slope_deg: 30
-  leveling_end_slope_deg: 50
-  smoothing_sigma_m: 140
-  micro_suppression: 0.98
-  depression_fill: 0.98
+  leveling_end_slope_deg: 40
+  smoothing_sigma_m: 130
+  micro_suppression: 0.95
+  depression_fill: 0.95
   tpi_smoothing_sigma_m: 1
-  thickness_smoothing_sigma_m: 30
-  surface_post_smooth_sigma_m: 38
-  surface_macro_smooth_sigma_m: 56
-  accumulation_blend_sigma_m: 18
-  cover_transition_sigma_m: 68
-  surface_transition_smooth_sigma_m: 42
-  surface_transition_bare_blend: 0.40
-  surface_cover_geometry_power: 1.0
-  deck_homogenize_strength: 0.82
-  deck_surface_smooth_sigma_m: 36
-  deck_offset_nominal_strength: 0.90
-  deck_offset_smooth_sigma_m: 32
-  deck_final_smooth_sigma_m: 24
-  deck_gentle_terrain_follow_start_m: 80
-  deck_gentle_terrain_follow_end_m: 95
-  deck_gentle_bulge_allowance_m: 100
-  valley_deposition_factor: 0.18
-  ridge_scour_factor: 0.10
-  ridge_micro_retention: 0.10
-  windward_aspect_penalty: 0.10
+  thickness_smoothing_sigma_m: 35
+  surface_post_smooth_sigma_m: 28
+  surface_macro_smooth_sigma_m: 35
+  accumulation_blend_sigma_m: 15
+  cover_transition_sigma_m: 32
+  surface_transition_smooth_sigma_m: 24
+  surface_transition_bare_blend: 0.0
+  deck_gentle_terrain_follow_start_m: 0.5
+  deck_gentle_terrain_follow_end_m: 4.0
+  deck_gentle_bulge_allowance_m: 0.32
+  deck_gentle_min_offset_m: 7.5
+  deck_bare_rock_slope_deg: 48
+  deck_gentle_max_slope_deg: 35
+  deck_homogenize_strength: 0.36
+  deck_surface_smooth_sigma_m: 18
+  deck_offset_nominal_strength: 0.0
+  deck_final_smooth_sigma_m: 14
+  valley_deposition_factor: 0.15
+  ridge_scour_factor: 0.08
+  ridge_micro_retention: 0.08
+  windward_aspect_penalty: 0.08
 
 elevation:
-  reference_m: 2100
+  reference_m: 1560
   snow_increase_per_100m: 0.04
   max_boost: 0.18
 
@@ -43,30 +46,30 @@ aspect:
 
 open_land:
   snow_fraction: [0.97, 1.0]
-  full_snow_thickness_m: 8.0
-  slope_snow_strength: 0.20
-  slope_snow_start_deg: 30
-  slope_snow_end_deg: 50
-  slope_min_snow_scale: 0.45
-  slope_min_snow_fraction: 0.97
-  slope_min_snow_softness: 0.05
+  full_snow_thickness_m: 10.0
+  slope_snow_strength: 0.18
+  slope_snow_start_deg: 32
+  slope_snow_end_deg: 52
+  slope_min_snow_scale: 0.55
+  slope_min_snow_fraction: 0.98
+  slope_min_snow_softness: 0.06
   slope_texture_visibility: 0.0
-  deck_depth_cover_floor: 0.55
-  deck_snow_fraction_boost: 0.88
-  hillshade_deck_floor: 0.62
-  protrusion_full_m: 6.0
-  protrusion_strength: 0.25
-  protrusion_snow_reduction: 0.60
-  protrusion_texture_visibility: 0.10
+  deck_depth_cover_floor: 0.72
+  deck_snow_fraction_boost: 0.92
+  hillshade_deck_floor: 0.82
+  protrusion_full_m: 8.0
+  protrusion_strength: 0.22
+  protrusion_snow_reduction: 0.55
+  protrusion_texture_visibility: 0.08
   snow_brightness: 0.98
   snow_texture_strength: 0.28
   original_texture_visibility: 0.0
   max_snow_blend: 1.0
-  hillshade_compression: 0.50
-  snow_flattening: 0.90
+  hillshade_compression: 0.46
+  snow_flattening: 0.62
   summer_shade_weight: 0.0
   hillshade_shade_weight: 0.0
-  macro_hillshade_weight: 0.97
+  macro_hillshade_weight: 0.0
   cast_shadow_weight: 0.18
   shadow_boost: 1.30
   highlight_cap: 0.55
@@ -101,27 +104,26 @@ settlement:
   highlight_cap: 0.52
 
 rock:
-  slope_visibility_threshold_deg: 38
-  roughness_visibility_threshold: 0.50
+  slope_visibility_threshold_deg: 35
+  roughness_visibility_threshold: 0.46
   max_snow_fraction: 0.94
-  full_snow_thickness_m: 8.0
-  thickness_burial_radius_m: 36
-  thickness_burial_factor: 0.82
-  min_rock_visibility: 0.16
+  full_snow_thickness_m: 10.0
+  thickness_burial_radius_m: 42
+  thickness_burial_factor: 0.88
+  min_rock_visibility: 0.14
   aspect_south_penalty: 0.08
-  gentle_slope_max_deg: 32
-  steep_slope_min_deg: 46
-  gentle_snow_boost: 0.36
-  gentle_render_boost: 0.30
+  gentle_slope_max_deg: 28
+  steep_slope_min_deg: 50
+  gentle_snow_boost: 0.32
+  gentle_render_boost: 0.38
+  steep_snow_cap: 0.45
   hillshade_compression: 0.55
-  snow_flattening: 0.28
+  snow_flattening: 0.38
   summer_shade_weight: 0.0
   hillshade_shade_weight: 0.0
   shadow_boost: 1.38
   highlight_cap: 0.55
-  summer_preservation: 0.44
-  desaturate_strength: 0.22
-  steep_snow_cap: 0.38
+  summer_preservation: 0.10
 
 roads:
   snow_fraction: [0.2, 0.5]
@@ -151,17 +153,17 @@ rendering:
   snow_color: [0.96, 0.98, 0.99]
   road_color: [0.55, 0.58, 0.62]
   noise_scale_px: 8
-  hillshade_strength_open_land: 0.32
-  hillshade_strength_rock: 0.24
-  hillshade_strength_settlement: 0.24
-  hillshade_strength_forest: 0.20
+  hillshade_strength_open_land: 0.20
+  hillshade_strength_rock: 0.0
+  hillshade_strength_settlement: 0.0
+  hillshade_strength_forest: 0.0
   map_shading:
     sun_azimuth: 135
     sun_altitude: 32
     south_shadow_boost: 0.2
-    strength: 0.3
-    hillshade_weight: 0.74
-    aspect_weight: 0.30
+    strength: 0.0
+    hillshade_weight: 0.0
+    aspect_weight: 0.0
     compression: 0.90
     min_snow: 0.10
     shade_min: 0.52
@@ -173,27 +175,27 @@ rendering:
     fine_sigma_px: 7
     building_radius_px: 12
     building_boost: 1.75
-    forest_boost: 1.35
-    base_strength: 0.38
+    forest_boost: 0.0
+    base_strength: 0.0
     final_strength: 0.68
     max_darken: 0.50
     min_snow: 0.20
   relief:
-    hillshade_strength: 0.26
-    compression: 0.62
-    macro_hillshade_weight: 1.0
+    hillshade_strength: 0.0
+    compression: 0.52
+    macro_hillshade_weight: 0.0
     min_snow: 0.30
     shade_min: 0.74
     sun_max: 1.16
     snow_tint_strength: 0.38
     summer_relief_weight: 0.0
-    cast_shadow_relief_weight: 0.28
+    cast_shadow_relief_weight: 0.0
     class_weights:
-      open_land: 0.08
-      settlement: 0.12
-      rock: 0.14
-      paths: 0.06
-      buildings: 0.16
+      open_land: 0.0
+      settlement: 0.0
+      rock: 0.0
+      paths: 0.0
+      buildings: 0.0
   summer_structure:
     highlight_rolloff: true
     highlight_knee: 0.88
@@ -204,7 +206,7 @@ rendering:
       open_land_mask:
         lum_lo: 0.84
         lum_hi: 0.98
-        strength: 0.03
+        strength: 0.0
       forest_mask:
         lum_lo: 0.34
         lum_hi: 0.68
@@ -212,7 +214,7 @@ rendering:
       rock_or_bare_ground_mask:
         lum_lo: 0.72
         lum_hi: 0.94
-        strength: 0.08
+        strength: 0.16
       settlement_mask:
         lum_lo: 0.58
         lum_hi: 0.90

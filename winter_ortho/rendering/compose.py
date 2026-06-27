@@ -5,7 +5,11 @@ from typing import Any
 import numpy as np
 
 from winter_ortho.features.terrain import compute_generalized_hillshade, hillshade_config_for_render
-from winter_ortho.snow_model.surface import compute_snow_cover_weight, resolve_snow_surface_config
+from winter_ortho.snow_model.surface import (
+    _smoothstep,
+    compute_snow_cover_weight,
+    resolve_snow_surface_config,
+)
 from winter_ortho.preprocessing.tiling import get_tile_grid
 from winter_ortho.rendering.base import to_float_rgb, to_uint8_rgb
 from winter_ortho.rendering.buildings import render_buildings
@@ -53,7 +57,10 @@ def blend_hillshade_for_snow(
     if cover_weight is not None:
         deck = np.clip(cover_weight, 0.0, 1.0).astype(np.float32)
         if deck_weight_floor > 0.0:
-            deck = np.maximum(deck, deck_weight_floor)
+            # Ramp deck floor with cover so bare cliffs keep summer hillshade.
+            floor_ramp = _smoothstep(0.06, 0.58, deck)
+            deck = np.maximum(deck, deck_weight_floor * floor_ramp)
+        deck = _smoothstep(0.0, 1.0, deck)
     elif accumulation_mask is not None:
         deck = accumulation_mask.astype(np.float32)
     else:
@@ -222,6 +229,7 @@ def render_winter_tile(
         shadow_boost=float(rock_cfg.get("shadow_boost", 1.45)),
         highlight_cap=float(rock_cfg.get("highlight_cap", 0.50)),
         summer_preservation=float(rock_cfg.get("summer_preservation", 0.42)),
+        desaturate_strength=float(rock_cfg.get("desaturate_strength", 0.45)),
     )
     forest_cfg = profile.get("forest", {})
     result = render_forest(

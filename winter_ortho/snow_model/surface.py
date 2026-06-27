@@ -32,6 +32,26 @@ DEFAULT_SNOW_SURFACE_CONFIG: dict[str, float] = {
     "leveling_full_slope_deg": 30.0,
     "leveling_end_slope_deg": 0.0,
     "cover_transition_sigma_m": 0.0,
+    "surface_transition_smooth_sigma_m": 0.0,
+    "surface_transition_bare_blend": 0.40,
+    "surface_cover_geometry_power": 1.0,
+    "geometry_cover_use_slope_weight": 0.0,
+    "deck_homogenize_strength": 0.0,
+    "deck_surface_smooth_sigma_m": 0.0,
+    "deck_offset_nominal_strength": 0.0,
+    "deck_offset_smooth_sigma_m": 0.0,
+    "deck_final_smooth_sigma_m": 0.0,
+    "deck_gentle_terrain_follow_start_m": 1.0e6,
+    "deck_gentle_terrain_follow_end_m": 1.0e6 + 1.0,
+    "deck_gentle_bulge_allowance_m": 1.0e6,
+    "deck_gentle_min_offset_m": 0.0,
+    "deck_bare_rock_slope_deg": 0.0,
+    "deck_gentle_max_slope_deg": 0.0,
+    "deck_bare_cover_lo": 0.04,
+    "deck_bare_cover_hi": 0.14,
+    "deck_bare_rock_transition_deg": 12.0,
+    "burial_floor_start_cover": 0.55,
+    "burial_floor_full_cover": 0.75,
 }
 
 
@@ -117,6 +137,8 @@ def compute_snow_surface_arrays(
         dem,
         thickness,
         leveling_weight,
+        ground_reference=ground_reference,
+        cfg=cfg,
     )
     slope_weight = _resolve_slope_weight(
         slope,
@@ -124,8 +146,13 @@ def compute_snow_surface_arrays(
         resolution_m,
         slope_work=slope_work,
     )
+    geometry_source = (
+        slope_weight
+        if float(cfg.get("geometry_cover_use_slope_weight", 0.0)) > 0.0
+        else blend_weight
+    )
     geometry_cover = _smooth_cover_weight(
-        (slope_weight * leveling_weight).astype(np.float32),
+        (geometry_source * leveling_weight).astype(np.float32),
         cfg,
         resolution_m,
     )
@@ -140,6 +167,33 @@ def compute_snow_surface_arrays(
         ground_reference,
         thickness,
         geometry_cover,
+        cfg,
+    )
+    snow_surface = _soften_snow_surface_transitions(
+        snow_surface,
+        geometry_cover,
+        cfg,
+        resolution_m,
+    )
+    snow_surface = _homogenize_gentle_deck_depth(
+        snow_surface,
+        dem.astype(np.float32),
+        thickness,
+        geometry_cover,
+        leveling_weight,
+        cfg,
+        resolution_m,
+        leveled_blanket=leveled_blanket,
+    )
+    snow_surface = _apply_gentle_deck_ceiling(
+        snow_surface,
+        dem.astype(np.float32),
+        thickness,
+        geometry_cover,
+        leveling_weight,
+        cfg,
+        slope_work=slope_work,
+        slope=slope.astype(np.float32),
     )
     snow_thickness = _finalize_snow_thickness(
         dem,
@@ -183,11 +237,51 @@ def _cap_leveled_blanket(
     dem: np.ndarray,
     thickness: np.ndarray,
     leveling_weight: np.ndarray,
+    *,
+    ground_reference: np.ndarray | None = None,
+    cfg: dict[str, float] | None = None,
 ) -> np.ndarray:
-    nominal = (dem + thickness).astype(np.float32)
+    """Cap smoothing bulges and floor collapsed peaks without undoing depression fill."""
+    cfg = cfg or {}
     active = leveling_weight > 0.05
-    excess = leveled_blanket > nominal
-    return np.where(active & excess, nominal, leveled_blanket).astype(np.float32)
+    surface_nominal = (dem + thickness).astype(np.float32)
+    capped = leveled_blanket.astype(np.float32)
+    if ground_reference is not None:
+        deck_nominal = (ground_reference + thickness).astype(np.float32)
+        gr_delta = np.abs(dem.astype(np.float32) - ground_reference.astype(np.float32))
+        terrain_follow = _smoothstep_ramp(
+            float(cfg.get("deck_gentle_terrain_follow_start_m", 1.0e6)),
+            float(cfg.get("deck_gentle_terrain_follow_end_m", 1.0e6 + 1.0)),
+            gr_delta.astype(np.float64),
+        )
+        gentle_deck = (deck_nominal * (1.0 - terrain_follow) + surface_nominal * terrain_follow).astype(
+            np.float32
+        )
+        bulge_allowance = float(cfg.get("deck_gentle_bulge_allowance_m", 1.0e6))
+        gentle_ceiling = np.minimum(gentle_deck, surface_nominal + bulge_allowance).astype(np.float32)
+        excess = capped > gentle_ceiling
+        capped = np.where(active & excess, gentle_ceiling, capped)
+        protrusion = np.maximum(
+            dem.astype(np.float32) - ground_reference.astype(np.float32),
+            0.0,
+        )
+        micro_limit = np.maximum(thickness.astype(np.float32) * 0.12, 1.0)
+        significant = protrusion > micro_limit
+        local_dem = ndimage.gaussian_filter(dem.astype(np.float64), sigma=3.0).astype(np.float32)
+        local_ridge = np.maximum(dem - local_dem, 0.0).astype(np.float32)
+        local_significant = local_ridge > micro_limit
+        on_steep = leveling_weight < 0.50
+        lift_target = np.where(
+            (significant & on_steep) | (local_significant & ~on_steep),
+            surface_nominal,
+            gentle_deck,
+        )
+        deficit = capped < lift_target
+        return np.where(active & deficit, lift_target, capped).astype(np.float32)
+    excess = capped > surface_nominal
+    capped = np.where(active & excess, surface_nominal, capped)
+    deficit = capped < surface_nominal
+    return np.where(active & deficit, surface_nominal, capped).astype(np.float32)
 
 
 def _composite_snow_surface(
@@ -196,14 +290,198 @@ def _composite_snow_surface(
     ground_reference: np.ndarray,
     thickness: np.ndarray,
     cover: np.ndarray,
+    cfg: dict[str, float] | None = None,
 ) -> np.ndarray:
-    """Blend snow deck to bare terrain without edge depressions."""
+    """Blend snow deck to bare terrain; bury exposed ridges without a pre-cliff plateau."""
+    cfg = cfg or {}
+    cover_f = cover.astype(np.float64)
+    geom_power = float(cfg.get("surface_cover_geometry_power", 1.0))
+    geom_cover = np.power(np.clip(cover_f, 0.0, 1.0), geom_power).astype(np.float32)
     deck_offset = (leveled_blanket - ground_reference).astype(np.float32)
     ceiling = np.maximum(leveled_blanket - dem, thickness).astype(np.float32)
     deck_depth = np.minimum(np.maximum(thickness, deck_offset), ceiling)
-    tapered = dem + deck_depth * cover
-    filled = leveled_blanket * cover + dem * (1.0 - cover)
-    return np.maximum(tapered, filled).astype(np.float32)
+    tapered = dem + deck_depth * geom_cover
+    filled = leveled_blanket * geom_cover + dem * (1.0 - geom_cover)
+    blended = np.maximum(tapered, filled)
+    # Full accumulation: follow the leveled deck, not dem + nominal thickness on ridges.
+    interior = _smoothstep(0.48, 0.98, cover_f)
+    snow = filled * interior + blended * (1.0 - interior)
+    # Lift only where the leveled deck sits below bare rock (nunatak / furrow), not on transitions.
+    burial_weight = _smoothstep(
+        float(cfg.get("burial_floor_start_cover", 0.55)),
+        float(cfg.get("burial_floor_full_cover", 0.75)),
+        cover_f,
+    )
+    burial_target = (dem + thickness * cover).astype(np.float32)
+    ridge_exposed = leveled_blanket < dem
+    snow = np.where(
+        ridge_exposed & (burial_weight > 1e-4),
+        np.maximum(
+            snow,
+            (dem + (burial_target - dem) * burial_weight).astype(np.float32),
+        ),
+        snow,
+    )
+    return np.maximum(snow, dem).astype(np.float32)
+
+
+def _soften_snow_surface_transitions(
+    snow_surface: np.ndarray,
+    cover: np.ndarray,
+    cfg: dict[str, float],
+    resolution_m: float,
+) -> np.ndarray:
+    """Blend snow deck height toward a smoothed field in mid-cover transition zones."""
+    sigma_m = float(cfg.get("surface_transition_smooth_sigma_m", 0.0))
+    if sigma_m <= 0.0:
+        return snow_surface.astype(np.float32)
+    sigma_px = max(1.0, sigma_m / resolution_m)
+    bare_blend = float(cfg.get("surface_transition_bare_blend", 0.40))
+    # Mid-cover band plus the approach to full deck (after horizontal cliff feather).
+    transition = np.maximum(
+        4.0 * cover * (1.0 - cover),
+        (1.0 - cover) * bare_blend,
+    ).astype(np.float32)
+    if not np.any(transition > 0.01):
+        return snow_surface.astype(np.float32)
+    smoothed = ndimage.gaussian_filter(
+        snow_surface.astype(np.float64),
+        sigma=sigma_px,
+    ).astype(np.float32)
+    blend = np.clip(transition, 0.0, 1.0)
+    return (snow_surface * (1.0 - blend) + smoothed * blend).astype(np.float32)
+
+
+def _homogenize_gentle_deck_depth(
+    snow_surface: np.ndarray,
+    dem: np.ndarray,
+    thickness: np.ndarray,
+    cover: np.ndarray,
+    leveling_weight: np.ndarray,
+    cfg: dict[str, float],
+    resolution_m: float,
+    *,
+    leveled_blanket: np.ndarray,
+) -> np.ndarray:
+    """Blend gentle snow deck toward a macro-smoothed blanket; stabilize offset along tracks."""
+    deck_blend = (
+        _smoothstep(0.82, 0.96, cover.astype(np.float64))
+        * np.clip(leveling_weight.astype(np.float64), 0.0, 1.0)
+    ).astype(np.float32)
+    if not np.any(deck_blend > 0.01):
+        return snow_surface.astype(np.float32)
+
+    strength = (
+        deck_blend * float(cfg.get("deck_homogenize_strength", 0.72))
+    ).astype(np.float32)
+
+    local_dem = ndimage.gaussian_filter(dem.astype(np.float64), sigma=3.0).astype(np.float32)
+    ridge_protrusion = np.maximum(dem - local_dem, 0.0).astype(np.float32)
+    ridge_atten = _smoothstep_ramp(2.0, 7.0, ridge_protrusion.astype(np.float64))
+    strength = (strength * (1.0 - 0.88 * ridge_atten)).astype(np.float32)
+
+    sigma_m = float(cfg.get("deck_surface_smooth_sigma_m", 0.0))
+    if sigma_m > 0.0:
+        sigma_px = max(1.0, sigma_m / resolution_m)
+        macro_target = ndimage.gaussian_filter(
+            leveled_blanket.astype(np.float64),
+            sigma=sigma_px,
+        ).astype(np.float32)
+    else:
+        macro_target = leveled_blanket.astype(np.float32)
+
+    homogenized = (snow_surface * (1.0 - strength) + macro_target * strength).astype(np.float32)
+
+    offset_nominal = float(cfg.get("deck_offset_nominal_strength", 0.0))
+    if offset_nominal > 0.0:
+        offset = homogenized - dem
+        offset_sigma_m = float(cfg.get("deck_offset_smooth_sigma_m", sigma_m))
+        if offset_sigma_m > 0.0:
+            offset_sigma_px = max(1.0, offset_sigma_m / resolution_m)
+            offset_work = ndimage.gaussian_filter(
+                offset.astype(np.float64),
+                sigma=offset_sigma_px,
+            ).astype(np.float32)
+        else:
+            offset_work = offset.astype(np.float32)
+        offset_blend = (deck_blend * offset_nominal).astype(np.float32)
+        target_offset = offset_work * (1.0 - offset_blend) + thickness * offset_blend
+        homogenized = (dem + target_offset).astype(np.float32)
+
+    final_sigma_m = float(cfg.get("deck_final_smooth_sigma_m", 0.0))
+    if final_sigma_m > 0.0:
+        final_sigma_px = max(1.0, final_sigma_m / resolution_m)
+        smoothed = ndimage.gaussian_filter(
+            homogenized.astype(np.float64),
+            sigma=final_sigma_px,
+        ).astype(np.float32)
+        final_weight = (deck_blend * _smoothstep(0.55, 0.92, cover.astype(np.float64))).astype(
+            np.float32
+        )
+        homogenized = homogenized * (1.0 - final_weight) + smoothed * final_weight
+
+    return np.maximum(homogenized, dem).astype(np.float32)
+
+
+def _apply_gentle_deck_ceiling(
+    snow_surface: np.ndarray,
+    dem: np.ndarray,
+    thickness: np.ndarray,
+    cover: np.ndarray,
+    leveling_weight: np.ndarray,
+    cfg: dict[str, float],
+    *,
+    slope_work: np.ndarray | None = None,
+    slope: np.ndarray | None = None,
+) -> np.ndarray:
+    """Cap gentle snow deck bulges; keep bare rock pixels at the DEM."""
+    allowance = float(cfg.get("deck_gentle_bulge_allowance_m", 1.0e6))
+    bare_blend = float(cfg.get("surface_transition_bare_blend", 0.40))
+    rock_slope = float(cfg.get("deck_bare_rock_slope_deg", 0.0))
+    gentle_max_slope = float(cfg.get("deck_gentle_max_slope_deg", 0.0))
+    if (
+        allowance >= 1.0e5
+        and bare_blend >= 0.35
+        and rock_slope <= 0.0
+        and gentle_max_slope <= 0.0
+    ):
+        return snow_surface.astype(np.float32)
+
+    deck_blend = (
+        _smoothstep(0.82, 0.96, cover.astype(np.float64))
+        * np.clip(leveling_weight.astype(np.float64), 0.0, 1.0)
+    ).astype(np.float32)
+    ceiling = (dem + thickness + allowance).astype(np.float32)
+    on_deck = deck_blend > 0.05
+    capped = np.where(on_deck, np.minimum(snow_surface, ceiling), snow_surface)
+    if gentle_max_slope > 0.0 and slope is not None:
+        gentle = slope.astype(np.float32) < gentle_max_slope
+        capped = np.where(gentle, np.minimum(capped, ceiling), capped)
+    floored = capped.astype(np.float32)
+    min_offset = float(cfg.get("deck_gentle_min_offset_m", 0.0))
+    if min_offset > 0.0:
+        full_deck = deck_blend > 0.55
+        floor = (dem + min_offset).astype(np.float32)
+        floored = np.where(full_deck, np.maximum(floored, floor), floored)
+
+    # Smooth taper toward bare DEM instead of a hard snap at low cover / steep slope.
+    cover_f = cover.astype(np.float64)
+    bare_lo = float(cfg.get("deck_bare_cover_lo", 0.04))
+    bare_hi = float(cfg.get("deck_bare_cover_hi", max(0.12, bare_blend * 0.55)))
+    bare_weight = (1.0 - _smoothstep(bare_lo, bare_hi, cover_f)).astype(np.float32)
+
+    slope_for_rock = slope if slope is not None else slope_work
+    if slope_for_rock is not None and rock_slope > 0.0:
+        transition_deg = float(cfg.get("deck_bare_rock_transition_deg", 12.0))
+        bare_from_slope = _smoothstep(
+            rock_slope - transition_deg,
+            rock_slope + 2.0,
+            slope_for_rock.astype(np.float64),
+        ).astype(np.float32)
+        bare_weight = np.maximum(bare_weight, bare_from_slope)
+
+    result = (dem * bare_weight + floored * (1.0 - bare_weight)).astype(np.float32)
+    return np.maximum(result, dem).astype(np.float32)
 
 
 def _smooth_cover_weight(
@@ -258,6 +536,20 @@ def _smoothstep(edge0: float, edge1: float, x: np.ndarray) -> np.ndarray:
     """Hermite ramp from 0 (at edge0) to 1 (at edge1)."""
     width = max(edge1 - edge0, 1e-3)
     t = np.clip((x - edge0) / width, 0.0, 1.0)
+    return (t * t * (3.0 - 2.0 * t)).astype(np.float32)
+
+
+def _smoothstep_ramp(
+    edge0: np.ndarray | float,
+    edge1: np.ndarray | float,
+    x: np.ndarray,
+) -> np.ndarray:
+    """Element-wise smoothstep for per-pixel ramp edges."""
+    edge0_arr = np.asarray(edge0, dtype=np.float64)
+    edge1_arr = np.asarray(edge1, dtype=np.float64)
+    x_arr = np.asarray(x, dtype=np.float64)
+    width = np.maximum(edge1_arr - edge0_arr, 1e-3)
+    t = np.clip((x_arr - edge0_arr) / width, 0.0, 1.0)
     return (t * t * (3.0 - 2.0 * t)).astype(np.float32)
 
 

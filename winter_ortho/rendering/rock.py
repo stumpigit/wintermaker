@@ -27,6 +27,7 @@ def render_rock(
     shadow_boost: float = 1.45,
     highlight_cap: float = 0.50,
     summer_preservation: float = 0.42,
+    desaturate_strength: float = 0.45,
     **_: object,
 ) -> np.ndarray:
     out = rgb.copy()
@@ -35,7 +36,13 @@ def render_rock(
         return out
 
     summer = out.copy()
-    summer_rock = desaturate(summer, np.where(active, 0.45, 0.0))
+    rock_vis = np.clip(rock_visibility, 0.0, 1.0)
+    desat = np.where(
+        active,
+        float(desaturate_strength) * (1.0 - rock_vis * 0.72),
+        0.0,
+    )
+    summer_rock = desaturate(summer, desat)
     shade_field = combined_shade_field(
         hillshade,
         summer,
@@ -66,15 +73,15 @@ def render_rock(
     alpha = np.clip(alpha, 0.0, 1.0)
 
     snowy = blend(summer_rock, snow_layer, alpha[..., np.newaxis])
-    snow_suppress = np.clip(snow_fraction, 0.0, 1.0)
+    snow_suppress = np.clip(snow_fraction, 0.0, 1.0) * (1.0 - rock_vis * 0.92)
     preserve = np.clip(
         summer_preservation
         * (rock_visibility + 0.15)
         * (0.20 + 0.80 * slope_t)
-        * (1.0 - snow_suppress * 0.92),
+        * (1.0 - snow_suppress),
         0.0,
-        0.55,
+        0.72,
     )
-    blended = blend(snowy, summer_rock, preserve[..., np.newaxis])
+    blended = blend(snowy, summer, preserve[..., np.newaxis])
     out[active] = blended[active]
     return out

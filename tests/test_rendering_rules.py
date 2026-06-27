@@ -138,3 +138,30 @@ def test_rock_gentle_render_boost_increases_snow_cover() -> None:
     high = render_rock(**common, gentle_render_boost=0.5)
 
     assert high.mean() > low.mean()
+
+
+def test_rock_preservation_keeps_summer_chroma_on_visible_faces() -> None:
+    from winter_ortho.rendering.relief import luminance
+    from winter_ortho.rendering.rock import render_rock
+
+    shape = (8, 8)
+    summer = np.zeros((*shape, 3), dtype=np.float32)
+    summer[..., 0] = 0.42
+    summer[..., 1] = 0.34
+    summer[..., 2] = 0.28
+    mask = np.ones(shape, dtype=np.uint8)
+    out = render_rock(
+        summer,
+        mask,
+        snow_fraction=np.full(shape, 0.88, dtype=np.float32),
+        rock_visibility=np.full(shape, 0.82, dtype=np.float32),
+        slope=np.full(shape, 52.0, dtype=np.float32),
+        snow_color=np.array([0.96, 0.98, 0.99], dtype=np.float32),
+        hillshade=np.full(shape, 0.55, dtype=np.float32),
+        hillshade_strength=0.0,
+        summer_preservation=0.55,
+        desaturate_strength=0.45,
+    )
+    gray = out.mean(axis=-1)
+    assert out[..., 0].mean() > gray.mean() + 0.01
+    assert luminance(out).mean() < 0.98
